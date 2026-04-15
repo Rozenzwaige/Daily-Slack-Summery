@@ -255,11 +255,18 @@ def collect_articles() -> list[dict]:
         all_articles.extend(batch)
         time.sleep(0.3)
 
-    print("📰 Scraping Israeli news homepages...")
+    print("📰 Scraping Israeli news pages...")
     homepage_sources = [
-        ("הארץ",      "https://www.haaretz.co.il/",    "/article"),
-        ("כאן חדשות", "https://www.kan.org.il/",       "/item/"),
-        ("גל\"צ",     "https://www.glz.co.il/",        None),
+        # הארץ — כמה מדורים
+        ("הארץ — חדשות",   "https://www.haaretz.co.il/news/local",      "/article"),
+        ("הארץ — חינוך",   "https://www.haaretz.co.il/news/education",  "/article"),
+        ("הארץ — סביבה",   "https://www.haaretz.co.il/nature",          "/article"),
+        # כאן וגל"צ
+        ("כאן חדשות",      "https://www.kan.org.il/",                   "/item/"),
+        ("גל\"צ",           "https://www.glz.co.il/",                   None),
+        # ישראל היום
+        ("ישראל היום — רווחה",   "https://www.israelhayom.co.il/news/welfare",  None),
+        ("ישראל היום — חדשות",   "https://www.israelhayom.co.il/israelnow",     None),
     ]
     for name, url, substr in homepage_sources:
         batch = scrape_homepage(name, url, article_substr=substr)
@@ -267,11 +274,17 @@ def collect_articles() -> list[dict]:
         all_articles.extend(batch)
         time.sleep(0.5)
 
-    print("💰 Scraping economy news feeds...")
+    print("💰 Scraping economy & welfare news feeds...")
     economy_sources = [
-        ("גלובס",   "https://www.globes.co.il/news/home.aspx?fid=9473", None),
-        ("כלכליסט", "https://www.calcalist.co.il/allnews",               None),
-        ("דה מרקר", "https://www.themarker.com/news",                    "/article"),
+        # גלובס — שני פידים
+        ("גלובס — כלכלה",    "https://www.globes.co.il/news/home.aspx?fid=9473", None),
+        ("גלובס — חברה",     "https://www.globes.co.il/news/home.aspx?fid=9917", None),
+        # כלכליסט — שני מדורים
+        ("כלכליסט — כל החדשות", "https://www.calcalist.co.il/allnews",     None),
+        ("כלכליסט — מקומי",     "https://www.calcalist.co.il/local_news",  None),
+        # דה מרקר — שני מדורים
+        ("דה מרקר — כל הכותרות", "https://www.themarker.com/misc/all-headlines", "/article"),
+        ("דה מרקר — צרכנות",     "https://www.themarker.com/consumer",          "/article"),
     ]
     for name, url, substr in economy_sources:
         batch = scrape_homepage(name, url, article_substr=substr)
