@@ -52,25 +52,7 @@ KEYWORDS_EN = [
 
 # ─── RSS sources ──────────────────────────────────────────────────────────────
 
-RSS_FEEDS = [
-    # Israeli general news
-    ("ynet",            "https://www.ynet.co.il/Integration/StoryRss2.xml"),
-    ("שיחה מקומית",     "https://www.mekomit.co.il/feed/"),
-    ("הארץ",            "https://www.haaretz.co.il/cmlink/1.1458"),
-    ("N12",             "https://www.n12.co.il/rss/"),
-    ("כאן חדשות",       "https://www.kan.org.il/rss/"),
-    # Economy / welfare
-    ("גלובס",           "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=1"),
-    ("כלכליסט",         "https://www.calcalist.co.il/Rss/RssFeedsTableBody.aspx?TableID=1026&siteID=1"),
-    ("דה מרקר",         "https://www.themarker.com/cmlink/1.4458"),
-    # International
-    ("Guardian Middle East", "https://www.theguardian.com/world/middleeast/rss"),
-    ("NYT Middle East",      "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
-    # Palestinian & Arab
-    ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
-    ("Wafa",                 "https://english.wafa.ps/rss"),
-    ("Ma'an News",           "https://www.maannews.com/rss/latest-news"),
-]
+# (RSS_FEEDS list removed — sources are now defined directly in collect_articles)
 
 # Google News RSS — searches specific topics in Hebrew (very up-to-date)
 GOOGLE_NEWS_QUERIES = [
@@ -140,16 +122,18 @@ def fetch_rss(name: str, url: str) -> list[dict]:
 
 
 def fetch_google_news(query: str) -> list[dict]:
-    """Fetch Google News RSS for a specific Hebrew/English query."""
+    """Fetch Google News RSS using browser headers to avoid blocks."""
     encoded = urllib.parse.quote(query)
-    url = (
-        f"https://news.google.com/rss/search"
-        f"?q={encoded}&hl=iw&gl=IL&ceid=IL:iw&num=15"
-    )
-    # All Google News results match our query by definition — skip keyword filter
+    url = f"https://news.google.com/rss/search?q={encoded}&hl=iw&gl=IL&ceid=IL:iw&num=15"
     articles = []
     try:
-        feed = feedparser.parse(url)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        }
+        resp = requests.get(url, headers=headers, timeout=12)
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.content)
         for entry in feed.entries:
             if not is_recent(entry):
                 continue
@@ -157,7 +141,7 @@ def fetch_google_news(query: str) -> list[dict]:
             link  = entry.get("link", "")
             if title:
                 articles.append({
-                    "source":  f"Google News",
+                    "source":  "Google News",
                     "title":   title,
                     "summary": "",
                     "link":    link,
@@ -167,33 +151,83 @@ def fetch_google_news(query: str) -> list[dict]:
     return articles
 
 
-def scrape_site(name: str, url: str, selectors: list[str]) -> list[dict]:
-    """Generic scraper — tries a list of CSS selectors to find headlines."""
+def fetch_rss_with_headers(name: str, url: str) -> list[dict]:
+    """Fetch RSS using browser headers (bypasses some paywalls/blocks)."""
     articles = []
     try:
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
-            )
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
         }
         resp = requests.get(url, headers=headers, timeout=12)
         resp.raise_for_status()
+        feed = feedparser.parse(resp.content)
+        for entry in feed.entries:
+            if not is_recent(entry):
+                continue
+            title   = entry.get("title", "").strip()
+            summary = entry.get("summary", "").strip()
+            link    = entry.get("link", "")
+            if not title:
+                continue
+            if is_relevant(title, summary):
+                articles.append({
+                    "source":  name,
+                    "title":   title,
+                    "summary": summary[:300],
+                    "link":    link,
+                })
+    except Exception as e:
+        print(f"  ⚠️  RSS error [{name}]: {e}")
+    return articles
+
+
+def scrape_homepage(name: str, url: str, article_substr: str = None, min_len: int = 18) -> list[dict]:
+    """
+    Scrape a news homepage by scanning all <a> links.
+    More robust than CSS selectors — works even after site redesigns.
+    """
+    articles = []
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
+        }
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "lxml")
-        seen = set()
-        for sel in selectors:
-            for el in soup.select(sel)[:30]:
-                title = el.get_text(separator=" ", strip=True)
-                if len(title) < 10 or title in seen:
-                    continue
-                seen.add(title)
-                if is_relevant(title):
-                    articles.append({
-                        "source":  name,
-                        "title":   title,
-                        "summary": "",
-                        "link":    url,
-                    })
+
+        # Remove noise elements
+        for tag in soup(["nav", "footer", "script", "style", "header", "aside"]):
+            tag.decompose()
+
+        seen: set[str] = set()
+        for a in soup.find_all("a", href=True):
+            title = a.get_text(separator=" ", strip=True)
+            href  = a["href"]
+
+            # Skip too short or too long texts
+            if len(title) < min_len or len(title) > 200:
+                continue
+            # If a URL pattern is required, enforce it
+            if article_substr and article_substr not in href:
+                continue
+
+            title_key = title[:55].lower()
+            if title_key in seen:
+                continue
+            seen.add(title_key)
+
+            if is_relevant(title):
+                full_url = href if href.startswith("http") else url.rstrip("/") + "/" + href.lstrip("/")
+                articles.append({
+                    "source":  name,
+                    "title":   title,
+                    "summary": "",
+                    "link":    full_url,
+                })
     except Exception as e:
         print(f"  ⚠️  Scrape error [{name}]: {e}")
     return articles
@@ -204,12 +238,46 @@ def scrape_site(name: str, url: str, selectors: list[str]) -> list[dict]:
 def collect_articles() -> list[dict]:
     all_articles: list[dict] = []
 
-    print("📡 Fetching RSS feeds...")
-    for name, url in RSS_FEEDS:
+    print("📡 Fetching RSS feeds (reliable sources)...")
+    reliable_rss = [
+        ("ynet",                 "https://www.ynet.co.il/Integration/StoryRss2.xml"),
+        ("שיחה מקומית",          "https://www.mekomit.co.il/feed/"),
+        ("N12",                  "https://www.n12.co.il/rss/"),
+        ("Guardian Middle East", "https://www.theguardian.com/world/middleeast/rss"),
+        ("NYT Middle East",      "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
+        ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
+        ("Wafa",                 "https://english.wafa.ps/rss"),
+        ("Ma'an News",           "https://www.maannews.com/rss/latest-news"),
+    ]
+    for name, url in reliable_rss:
         batch = fetch_rss(name, url)
         print(f"   {name}: {len(batch)}")
         all_articles.extend(batch)
-        time.sleep(0.3)  # polite delay
+        time.sleep(0.3)
+
+    print("📰 Scraping Israeli news homepages...")
+    homepage_sources = [
+        ("הארץ",      "https://www.haaretz.co.il/",    "/article"),
+        ("כאן חדשות", "https://www.kan.org.il/",       "/item/"),
+        ("גל\"צ",     "https://www.glz.co.il/",        None),
+    ]
+    for name, url, substr in homepage_sources:
+        batch = scrape_homepage(name, url, article_substr=substr)
+        print(f"   {name}: {len(batch)}")
+        all_articles.extend(batch)
+        time.sleep(0.5)
+
+    print("💰 Scraping economy news homepages...")
+    economy_sources = [
+        ("גלובס",    "https://www.globes.co.il/",    None),
+        ("כלכליסט",  "https://www.calcalist.co.il/", None),
+        ("דה מרקר",  "https://www.themarker.com/",   "/article"),
+    ]
+    for name, url, substr in economy_sources:
+        batch = scrape_homepage(name, url, article_substr=substr)
+        print(f"   {name}: {len(batch)}")
+        all_articles.extend(batch)
+        time.sleep(0.5)
 
     print("🔍 Fetching Google News topic searches...")
     for query in GOOGLE_NEWS_QUERIES:
@@ -217,18 +285,6 @@ def collect_articles() -> list[dict]:
         print(f"   [{query}]: {len(batch)}")
         all_articles.extend(batch)
         time.sleep(0.3)
-
-    print("🖥️  Scraping כאן & גל\"צ news pages...")
-    all_articles.extend(scrape_site(
-        "כאן (רשת ב')",
-        "https://www.kan.org.il/news/",
-        ["h2", "h3", ".article-title", ".item-title", ".story-title"],
-    ))
-    all_articles.extend(scrape_site(
-        "גל\"צ",
-        "https://glz.co.il/news",
-        ["h2", "h3", ".article-title", ".news-title"],
-    ))
 
     # Deduplicate by normalised title prefix
     seen: set[str] = set()
