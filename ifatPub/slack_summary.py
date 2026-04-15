@@ -456,19 +456,6 @@ def main():
     # Send header
     send_header(slack, channel_id, label, len(df), from_dt, to_dt)
 
-    # Generate and upload charts
-    if not df.empty:
-        print("[INFO] Generating charts...")
-        chart_titles = {
-            "lang.png":      "פרסומים לפי שפה",
-            "media.png":     "פרסומים לפי סוג מדיה",
-            "wordcloud.png": "ענן מילים",
-        }
-        for filename, png_bytes in generate_charts(df):
-            title = chart_titles.get(filename, filename)
-            print(f"[INFO] Uploading {filename}...")
-            upload_chart(slack, channel_id, filename, png_bytes, title)
-
     # Send article cards
     print("[INFO] Sending article cards...")
     send_articles(slack, channel_id, df)

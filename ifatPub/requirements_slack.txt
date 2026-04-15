@@ -1,7 +1,4 @@
 gspread>=6.0.0
 google-auth>=2.0.0
 pandas>=2.0.0
-matplotlib>=3.7.0
-wordcloud>=1.9.0
-python-bidi>=0.4.2
 slack-sdk>=3.27.0
