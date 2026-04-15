@@ -2,10 +2,10 @@ name: Daily News Summary
 
 on:
   schedule:
-    # 10:00 Israel Daylight Time (IDT = UTC+3)  → 07:00 UTC  (summer: Mar–Oct)
-    # 10:00 Israel Standard Time (IST = UTC+2)  → 08:00 UTC  (winter: Oct–Mar)
-    # Using 07:00 UTC so it arrives at 10:00 during the main working season.
-    - cron: "0 7 * * *"
+    # 09:00 Israel Daylight Time (IDT = UTC+3)  → 06:00 UTC  (summer: Mar–Oct)
+    # 09:00 Israel Standard Time (IST = UTC+2)  → 07:00 UTC  (winter: Oct–Mar)
+    # Running at 09:00 to ensure delivery by 10:00 (buffer for server load).
+    - cron: "0 6 * * *"
 
   # Allow triggering manually from the GitHub Actions UI (for testing)
   workflow_dispatch:
