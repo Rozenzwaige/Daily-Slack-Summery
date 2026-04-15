@@ -267,11 +267,11 @@ def collect_articles() -> list[dict]:
         all_articles.extend(batch)
         time.sleep(0.5)
 
-    print("💰 Scraping economy news homepages...")
+    print("💰 Scraping economy news feeds...")
     economy_sources = [
-        ("גלובס",    "https://www.globes.co.il/",    None),
-        ("כלכליסט",  "https://www.calcalist.co.il/", None),
-        ("דה מרקר",  "https://www.themarker.com/",   "/article"),
+        ("גלובס",   "https://www.globes.co.il/news/home.aspx?fid=9473", None),
+        ("כלכליסט", "https://www.calcalist.co.il/allnews",               None),
+        ("דה מרקר", "https://www.themarker.com/news",                    "/article"),
     ]
     for name, url, substr in economy_sources:
         batch = scrape_homepage(name, url, article_substr=substr)
@@ -304,12 +304,14 @@ def collect_articles() -> list[dict]:
 def summarise(articles: list[dict]) -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # Build article list (cap at 100 to keep costs low)
+    # Build article list with URLs (cap at 100 to keep costs low)
     lines = []
     for i, a in enumerate(articles[:100], 1):
         line = f"{i}. [{a['source']}] {a['title']}"
+        if a["link"]:
+            line += f"\n   קישור: {a['link']}"
         if a["summary"]:
-            line += f"\n   {a['summary'][:250]}"
+            line += f"\n   {a['summary'][:200]}"
         lines.append(line)
     articles_text = "\n".join(lines)
 
@@ -356,6 +358,9 @@ _מקורות: ynet, הארץ, N12, שיחה מקומית, גלובס, כלכל�
 - 2–4 נקודות לקטגוריה (אם אין חדשות בקטגוריה — כתוב "לא דווח")
 - אל תמציא מידע שאינו מופיע ברשימה
 - שפה: עברית תקנית ופשוטה
+- *חובה:* בסוף כל נקודת סיכום הוסף קישור למקור בפורמט Slack בדיוק כך: `<URL|שם_מקור>`
+  לדוגמה: `• ישראל הודיעה על הפסקת אש זמנית ברצועת עזה. <https://www.ynet.co.il/article/123|ynet>`
+  השתמש ב-URL מהרשימה (שדה "קישור:") של הכתבה שממנה לקחת את המידע.
 
 ---
 כתבות לסיכום:
