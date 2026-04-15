@@ -17,17 +17,11 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 import pandas as pd
-from bidi.algorithm import get_display
 from google.oauth2.service_account import Credentials
 import gspread
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from wordcloud import WordCloud
 
 # ── Brand palette ─────────────────────────────────────────────────────────
 ST_PALETTE = ["#8B1A9D", "#B55BC8", "#5C1070", "#D4A0DC",
