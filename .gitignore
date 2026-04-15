@@ -1,0 +1,38 @@
+# Sensitive credentials — NEVER commit these
+credentials.json
+ifat_config.json
+*.json
+!package.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Streamlit secrets (local)
+.streamlit/secrets.toml
+
+# Large binary / media files
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.zip
+
+# Claude internal
+.claude/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
