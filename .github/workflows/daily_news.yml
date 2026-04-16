@@ -2,10 +2,10 @@ name: Daily News Summary
 
 on:
   schedule:
-    # 09:00 Israel Daylight Time (IDT = UTC+3)  → 06:00 UTC  (summer: Mar–Oct)
-    # 09:00 Israel Standard Time (IST = UTC+2)  → 07:00 UTC  (winter: Oct–Mar)
-    # Running at 09:00 to ensure delivery by 10:00 (buffer for server load).
-    - cron: "0 6 * * *"
+    # FALLBACK ONLY — cron-job.org is the primary trigger at 06:00 UTC (09:00 IDT).
+    # This runs at 08:00 UTC (11:00 IDT) as a safety net if cron-job.org fails.
+    # Duplicate prevention in the check job will skip this if already ran today.
+    - cron: "0 8 * * *"
 
   # Allow triggering manually from the GitHub Actions UI
   workflow_dispatch:
