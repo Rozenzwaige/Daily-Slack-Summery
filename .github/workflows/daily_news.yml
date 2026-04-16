@@ -7,11 +7,57 @@ on:
     # Running at 09:00 to ensure delivery by 10:00 (buffer for server load).
     - cron: "0 6 * * *"
 
-  # Allow triggering manually from the GitHub Actions UI (for testing)
+  # Allow triggering manually from the GitHub Actions UI
   workflow_dispatch:
 
 jobs:
+  # ── Job 1: decide whether to run ──────────────────────────────────────────
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.decide.outputs.should_run }}
+
+    steps:
+      - name: Decide whether to run
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Manual triggers (workflow_dispatch) always run
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "▶️  Manual trigger — running."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Scheduled run: skip if a manual run already succeeded today
+          TODAY=$(date -u +%Y-%m-%d)
+          ALREADY=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow "daily_news.yml" \
+            --event workflow_dispatch \
+            --status success \
+            --json createdAt \
+            --limit 10 | python3 -c "
+          import sys, json
+          runs = json.load(sys.stdin)
+          today = '$TODAY'
+          found = any(r['createdAt'][:10] == today for r in runs)
+          print('true' if found else 'false')
+          ")
+
+          if [ "$ALREADY" = "true" ]; then
+            echo "✋ Manual run already completed today — skipping scheduled run."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "▶️  No manual run today — proceeding with scheduled run."
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Job 2: run the summary (only if check approved it) ────────────────────
   send-news-summary:
+    needs: check
+    if: needs.check.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -31,8 +77,8 @@ jobs:
 
       - name: Run daily news summary
         env:
-          ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}
-          SLACK_WEBHOOK_URL:     ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_BOT_TOKEN:       ${{ secrets.SLACK_BOT_TOKEN }}
-          NEWS_INPUTS_CHANNEL:   ${{ secrets.NEWS_INPUTS_CHANNEL }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL:   ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN:     ${{ secrets.SLACK_BOT_TOKEN }}
+          NEWS_INPUTS_CHANNEL: ${{ secrets.NEWS_INPUTS_CHANNEL }}
         run: python news_summary/main.py
