@@ -445,6 +445,10 @@ def main():
     df = filter_window(df_full, from_dt, to_dt)
     print(f"[INFO] {len(df)} articles in window: {label}")
 
+    if df.empty:
+        print("[INFO] No articles found — skipping Slack message.")
+        return
+
     slack = WebClient(token=token)
 
     # Send header
