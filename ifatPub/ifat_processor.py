@@ -1504,7 +1504,7 @@ def _api_item_to_dict(item: dict, source_index: dict | None = None) -> dict:
         "peace_topic":  peace_topic,
         # metadata for new sheet columns
         "_itemtype":    raw_itemtype,
-        "language":     _detect_language(title_str + " " + content),
+        "language":     _api_language(item, title_str + " " + content),
         "media":        _detect_media(raw_itemtype),
         "sentiment":    _translate_sentiment(item.get("sentiment", "")),
         # pub_type and topic depend on character_col (set after enrich())
@@ -1595,7 +1595,67 @@ def _detect_media(itemtype) -> str:
 
 
 # ── Language ──────────────────────────────────────────────────────────────────
+
+# Numeric language IDs that Ifat may return (languageid field)
+_LANGUAGE_ID_MAP: dict = {
+    1: 'עברית',    '1': 'עברית',
+    2: 'ערבית',    '2': 'ערבית',
+    3: 'אנגלית',   '3': 'אנגלית',
+    4: 'רוסית',    '4': 'רוסית',
+    5: 'צרפתית',   '5': 'צרפתית',
+    6: 'ספרדית',   '6': 'ספרדית',
+    7: 'גרמנית',   '7': 'גרמנית',
+    8: 'אמהרית',   '8': 'אמהרית',
+    9: 'תיגרינית', '9': 'תיגרינית',
+}
+
+# String language names (lowercase) that Ifat may return (language field)
+_LANGUAGE_NAME_MAP: dict = {
+    'hebrew':    'עברית',   'heb': 'עברית',   'עברית': 'עברית',
+    'arabic':    'ערבית',   'ara': 'ערבית',   'ערבית': 'ערבית',
+    'english':   'אנגלית',  'eng': 'אנגלית',  'אנגלית': 'אנגלית',
+    'russian':   'רוסית',   'rus': 'רוסית',   'רוסית': 'רוסית',
+    'french':    'צרפתית',  'fre': 'צרפתית',  'צרפתית': 'צרפתית',
+    'spanish':   'ספרדית',  'spa': 'ספרדית',  'ספרדית': 'ספרדית',
+    'german':    'גרמנית',  'ger': 'גרמנית',  'גרמנית': 'גרמנית',
+    'amharic':   'אמהרית',                    'אמהרית': 'אמהרית',
+    'tigrinya':  'תיגרינית','tigrigna': 'תיגרינית', 'תיגרינית': 'תיגרינית',
+}
+
+
+def _api_language(item: dict, fallback_text: str = "") -> str:
+    """
+    Read language from a יפעת API item dict.
+    Priority:
+      1. languageid (numeric)  →  _LANGUAGE_ID_MAP
+      2. language / lang (string)  →  _LANGUAGE_NAME_MAP
+      3. Text-based detection on fallback_text (last resort)
+    """
+    # 1. Numeric ID
+    lang_id = (item.get("languageid") or item.get("LanguageId")
+               or item.get("languageId") or item.get("language_id"))
+    if lang_id is not None:
+        mapped = _LANGUAGE_ID_MAP.get(lang_id) or _LANGUAGE_ID_MAP.get(str(lang_id))
+        if mapped:
+            return mapped
+
+    # 2. String name (various casings)
+    lang_str = (
+        item.get("language") or item.get("Language")
+        or item.get("lang")  or item.get("Lang") or ""
+    ).strip()
+    if lang_str:
+        mapped = (_LANGUAGE_NAME_MAP.get(lang_str.lower())
+                  or _LANGUAGE_NAME_MAP.get(lang_str))
+        if mapped:
+            return mapped
+
+    # 3. Fallback: detect from text
+    return _detect_language(fallback_text) if fallback_text else 'עברית'
+
+
 def _detect_language(text: str) -> str:
+    """Last-resort language detection by counting Unicode character ranges."""
     hebrew   = len(re.findall(r'[\u0590-\u05FF\uFB1D-\uFB4F]', text))
     arabic   = len(re.findall(r'[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]', text))
     cyrillic = len(re.findall(r'[\u0400-\u04FF]', text))
@@ -1698,6 +1758,7 @@ def fetch_api_articles(
     main_articles:  list[dict] = []
     peace_articles: list[dict] = []
     PAGE_SIZE = 100
+    _debug_printed = False   # print raw language fields from first item once
 
     try:
         for page in range(1, 9999):
@@ -1707,6 +1768,13 @@ def fetch_api_articles(
 
             past_target = False
             for item in items:
+                # One-time debug: show language-related keys from the first item
+                if not _debug_printed:
+                    lang_keys = {k: v for k, v in item.items()
+                                 if 'lang' in k.lower() or 'שפה' in str(k)}
+                    print(f"[DEBUG] שדות שפה ב-API: {lang_keys or '(לא נמצאו)'}")
+                    _debug_printed = True
+
                 pub = (item.get("publishdate", "") or "")[:19]
                 try:
                     item_dt = datetime.fromisoformat(pub).date()
@@ -1734,6 +1802,138 @@ def fetch_api_articles(
 
     print(f"נמצאו {len(main_articles)} כתבות ראשיות + {len(peace_articles)} כתבות שלום ישראלי-פלסטיני עבור {target_date}")
     return main_articles, peace_articles
+
+
+# ============================================================
+# Archive: fetch a date range → "ארכיון" sheet
+# ============================================================
+
+def fetch_archive_range(
+    config: dict,
+    characters: list,
+    from_date_str: str = "01/01/2020",
+    to_date_str: Optional[str] = None,
+    write_batch_size: int = 300,
+) -> int:
+    """
+    Fetch ALL articles from Yifat API in [from_date, to_date] and write
+    them to the archive sheet (config["archive_sheet_name"], default "ארכיון").
+
+    This is a ONE-TIME backfill operation.  It does NOT touch the main
+    "עומדים ביחד פרסומים" or "שלום ישראלי פלסטיני" tabs and therefore
+    cannot interfere with the daily --fetch-api runs.
+
+    Returns the total number of articles written.
+    """
+    from datetime import timedelta
+
+    if to_date_str is None:
+        to_date_str = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+
+    try:
+        from_dt = datetime.strptime(from_date_str, "%d/%m/%Y").date()
+        to_dt   = datetime.strptime(to_date_str,   "%d/%m/%Y").date()
+    except ValueError as exc:
+        raise ValueError(f"פורמט תאריך שגוי ({exc}).  השתמש ב-DD/MM/YYYY") from exc
+
+    archive_sheet = config.get("archive_sheet_name", "ארכיון")
+    archive_cfg   = {**config, "sheet_name": archive_sheet}
+
+    print(f"\n{'='*60}")
+    print(f"  ארכיון יפעת: {from_date_str} → {to_date_str}")
+    print(f"  טאב יעד: '{archive_sheet}'")
+    print(f"  גודל אצווה לכתיבה: {write_batch_size} כתבות")
+    print(f"{'='*60}\n")
+
+    source_index = load_source_index(config)
+    print("מתחבר ל-API יפעת...")
+    pw, browser, bpage, token = _ifat_browser_login(config)
+    print("מחובר. מתחיל שליפה...\n")
+
+    PAGE_SIZE   = 100
+    batch:      list[dict] = []
+    total_written           = 0
+    pages_fetched           = 0
+    newest_seen: Optional[str] = None
+    oldest_seen: Optional[str] = None
+
+    try:
+        for page in range(1, 99_999):
+            items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
+            if not items:
+                print("  ← אין עוד כתבות ב-API.")
+                break
+
+            pages_fetched += 1
+            in_range_this_page = 0
+            past_range         = False
+
+            for item in items:
+                pub = (item.get("publishdate", "") or "")[:19]
+                try:
+                    item_dt = datetime.fromisoformat(pub).date()
+                except Exception:
+                    continue
+
+                if item_dt > to_dt:
+                    continue  # עדיין עתידי מדי — ממשיכים לדף הבא
+
+                if item_dt < from_dt:
+                    past_range = True
+                    break      # עברנו אחורה מעבר לטווח — אפשר לעצור
+
+                # item_dt נמצא בטווח [from_dt, to_dt]
+                art = _api_item_to_dict(item, source_index=source_index)
+                enrich(art, characters)
+                art["pub_type"] = _detect_pub_type(art)
+                art["topic"]    = _detect_topic(art)
+                batch.append(art)
+                in_range_this_page += 1
+
+                date_str = item_dt.strftime("%d/%m/%Y")
+                if newest_seen is None:
+                    newest_seen = date_str
+                oldest_seen = date_str
+
+            print(
+                f"  דף {page:4d} | בטווח: {in_range_this_page:3d} | "
+                f"אצווה: {len(batch):4d} | "
+                f"סה\"כ נכתב: {total_written:5d} | "
+                f"תאריך אחרון: {oldest_seen or '—'}"
+            )
+
+            # Write to sheet when batch is full
+            if len(batch) >= write_batch_size:
+                print(f"\n  → כותב {len(batch)} כתבות לטאב '{archive_sheet}'...")
+                append_to_sheet(batch, archive_cfg)
+                total_written += len(batch)
+                batch = []
+                print(f"  סה\"כ נכתב עד כה: {total_written}\n")
+
+            if past_range:
+                print(f"\n  ← הגענו לפני {from_date_str} — עוצרים.")
+                break
+
+            if len(items) < PAGE_SIZE:
+                print("  ← דף חלקי — סוף הנתונים ב-API.")
+                break
+
+    finally:
+        browser.close()
+        pw.stop()
+
+    # Write whatever remains in the last batch
+    if batch:
+        print(f"\n  → כותב {len(batch)} כתבות אחרונות לטאב '{archive_sheet}'...")
+        append_to_sheet(batch, archive_cfg)
+        total_written += len(batch)
+
+    print(f"\n{'='*60}")
+    print(f"  הסתיים!  סה\"כ {total_written} כתבות נכתבו לטאב '{archive_sheet}'")
+    print(f"  דפים שנסרקו: {pages_fetched}")
+    print(f"  טווח תאריכים שנכתב: {oldest_seen or '—'} → {newest_seen or '—'}")
+    print(f"{'='*60}\n")
+    return total_written
 
 
 # ============================================================
@@ -1786,6 +1986,12 @@ def main():
                         help="משוך כתבות מ-API יפעת ישירות והכנס לגיליון (ברירת מחדל: אתמול)")
     parser.add_argument("--date",          metavar="DD/MM/YYYY",
                         help="תאריך לשליפה עבור --fetch-api (ברירת מחדל: אתמול)")
+    parser.add_argument("--archive",       action="store_true",
+                        help="שלוף ארכיון היסטורי מ-API יפעת וכתוב לטאב 'ארכיון' (פעולה חד-פעמית)")
+    parser.add_argument("--from-date",     metavar="DD/MM/YYYY", default="01/01/2020",
+                        help="תאריך התחלה לארכיון (ברירת מחדל: 01/01/2020)")
+    parser.add_argument("--to-date",       metavar="DD/MM/YYYY",
+                        help="תאריך סיום לארכיון (ברירת מחדל: אתמול)")
     args = parser.parse_args()
 
     config     = load_config()
@@ -1801,6 +2007,17 @@ def main():
         processed.add(pdf_path.name)
         save_state(processed)
         print(f"הושלם ({len(articles)} פריטים)")
+
+    elif args.archive:
+        if "ifat_username" not in config or "ifat_password" not in config:
+            print("שגיאה: חסרים ifat_username / ifat_password ב-ifat_config.json")
+            return
+        fetch_archive_range(
+            config,
+            characters,
+            from_date_str=args.from_date,
+            to_date_str=args.to_date,   # None → ברירת מחדל: אתמול
+        )
 
     elif args.fetch_api:
         if "ifat_username" not in config or "ifat_password" not in config:
