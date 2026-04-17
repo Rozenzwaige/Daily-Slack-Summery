@@ -1423,7 +1423,8 @@ def _ifat_fetch_page(bpage, token: str, page: int, page_size: int = 100) -> list
     return result.get("items", result.get("Items", []))
 
 
-def _api_item_to_dict(item: dict, source_index: dict | None = None) -> dict:
+def _api_item_to_dict(item: dict, source_index: dict | None = None,
+                      language_index: dict | None = None) -> dict:
     """Convert a single יפעת API article object to our internal format."""
     pub = (item.get("publishdate", "") or "").strip()
     try:
@@ -1504,7 +1505,8 @@ def _api_item_to_dict(item: dict, source_index: dict | None = None) -> dict:
         "peace_topic":  peace_topic,
         # metadata for new sheet columns
         "_itemtype":    raw_itemtype,
-        "language":     _api_language(item, title_str + " " + content),
+        "language":     (lookup_language(source_str, language_index or {})
+                         or _api_language(item, title_str + " " + content)),
         "media":        _detect_media(raw_itemtype),
         "sentiment":    _translate_sentiment(item.get("sentiment", "")),
         # pub_type and topic depend on character_col (set after enrich())
@@ -1518,15 +1520,19 @@ def _api_item_to_dict(item: dict, source_index: dict | None = None) -> dict:
 _OMETZ_KEYWORD = "עומדים ביחד"
 
 # ── Source index (loaded once per run) ───────────────────────────────────────
-_source_index_cache: dict[str, str] | None = None
+# גיליון "אינדקס": A=שם מקור, B=מגזר, C=שפה
+_source_index_cache:   dict[str, str] | None = None
+_language_index_cache: dict[str, str] | None = None
+
 
 def load_source_index(config: dict) -> dict:
     """
     Read the 'אינדקס' sheet and return a lowercase-normalised dict:
         { normalised_source_name → sector_string }
+    Also populates _language_index_cache from column C (שפה).
     Reuses the shared gspread connection. Results are cached per run.
     """
-    global _source_index_cache
+    global _source_index_cache, _language_index_cache
     if _source_index_cache is not None:
         return _source_index_cache
 
@@ -1536,17 +1542,23 @@ def load_source_index(config: dict) -> dict:
         rows           = ws.get_all_values()
     except Exception as e:
         print(f"[אזהרה] לא ניתן לטעון גיליון אינדקס: {e}")
-        _source_index_cache = {}
+        _source_index_cache   = {}
+        _language_index_cache = {}
         return _source_index_cache
 
-    index: dict[str, str] = {}
+    sector_idx:   dict[str, str] = {}
+    language_idx: dict[str, str] = {}
     for row in rows[1:]:   # skip header
-        if len(row) >= 2 and row[0].strip():
-            key = row[0].strip().lower()
-            index[key] = row[1].strip()
+        if not (len(row) >= 2 and row[0].strip()):
+            continue
+        key = row[0].strip().lower()
+        sector_idx[key] = row[1].strip()
+        if len(row) >= 3 and row[2].strip():          # עמודה C = שפה
+            language_idx[key] = row[2].strip()
 
-    _source_index_cache = index
-    return index
+    _source_index_cache   = sector_idx
+    _language_index_cache = language_idx
+    return _source_index_cache
 
 
 def lookup_sector(source: str, index: dict[str, str]) -> str:
@@ -1559,10 +1571,25 @@ def lookup_sector(source: str, index: dict[str, str]) -> str:
     s = source.strip().lower()
     if s in index:
         return index[s]
-    # partial match: find first index key that is contained in source or vice-versa
     for key, sector in index.items():
         if key in s or s in key:
             return sector
+    return ""
+
+
+def lookup_language(source: str, index: dict[str, str]) -> str:
+    """
+    Case-insensitive lookup of source language from the index (column C).
+    Falls back to partial (substring) match if exact match not found.
+    """
+    if not source or not index:
+        return ""
+    s = source.strip().lower()
+    if s in index:
+        return index[s]
+    for key, lang in index.items():
+        if key in s or s in key:
+            return lang
     return ""
 
 
@@ -1750,7 +1777,12 @@ def fetch_api_articles(
     except ValueError:
         raise ValueError(f"פורמט תאריך שגוי: {target_date}  (צפוי DD/MM/YYYY)")
 
-    source_index = load_source_index(config)
+    source_index   = load_source_index(config)
+    language_index = _language_index_cache or {}
+    if language_index:
+        print(f"  נטענו {len(language_index)} מקורות עם שפה מהאינדקס")
+    else:
+        print(f"  [שים לב] אין עמודת שפה באינדקס — נשתמש בזיהוי אוטומטי")
     print(f"מתחבר ל-API יפעת...")
     pw, browser, bpage, token = _ifat_browser_login(config)
     print(f"מחובר. מושך כתבות עבור {target_date}...")
@@ -1758,7 +1790,6 @@ def fetch_api_articles(
     main_articles:  list[dict] = []
     peace_articles: list[dict] = []
     PAGE_SIZE = 100
-    _debug_printed = False   # print raw language fields from first item once
 
     try:
         for page in range(1, 9999):
@@ -1768,13 +1799,6 @@ def fetch_api_articles(
 
             past_target = False
             for item in items:
-                # One-time debug: show language-related keys from the first item
-                if not _debug_printed:
-                    lang_keys = {k: v for k, v in item.items()
-                                 if 'lang' in k.lower() or 'שפה' in str(k)}
-                    print(f"[DEBUG] שדות שפה ב-API: {lang_keys or '(לא נמצאו)'}")
-                    _debug_printed = True
-
                 pub = (item.get("publishdate", "") or "")[:19]
                 try:
                     item_dt = datetime.fromisoformat(pub).date()
@@ -1782,7 +1806,8 @@ def fetch_api_articles(
                     continue
 
                 if item_dt == target_dt:
-                    art = _api_item_to_dict(item, source_index=source_index)
+                    art = _api_item_to_dict(item, source_index=source_index,
+                                            language_index=language_index)
                     enrich(art, characters)
                     art["pub_type"] = _detect_pub_type(art)
                     art["topic"]    = _detect_topic(art)
@@ -1883,7 +1908,8 @@ def fetch_archive_range(
                     break      # עברנו אחורה מעבר לטווח — אפשר לעצור
 
                 # item_dt נמצא בטווח [from_dt, to_dt]
-                art = _api_item_to_dict(item, source_index=source_index)
+                art = _api_item_to_dict(item, source_index=source_index,
+                                        language_index=_language_index_cache or {})
                 enrich(art, characters)
                 art["pub_type"] = _detect_pub_type(art)
                 art["topic"]    = _detect_topic(art)
