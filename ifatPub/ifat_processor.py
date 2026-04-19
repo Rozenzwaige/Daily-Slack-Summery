@@ -1857,42 +1857,46 @@ def fetch_api_articles(
     else:
         print(f"  [שים לב] אין עמודת שפה באינדקס — נשתמש בזיהוי אוטומטי")
     print(f"מתחבר ל-API יפעת...")
-    session, token = _ifat_http_login(config)
+    pw, browser, bpage, token = _ifat_browser_login(config)
     print(f"מחובר. מושך כתבות עבור {target_date}...")
 
     main_articles:  list[dict] = []
     peace_articles: list[dict] = []
     PAGE_SIZE = 100
 
-    for page in range(1, 9999):
-        items = _ifat_fetch_page_http(session, token, page=page, page_size=PAGE_SIZE)
-        if not items:
-            break
-
-        past_target = False
-        for item in items:
-            pub = (item.get("publishdate", "") or "")[:19]
-            try:
-                item_dt = datetime.fromisoformat(pub).date()
-            except Exception:
-                continue
-
-            if item_dt == target_dt:
-                art = _api_item_to_dict(item, source_index=source_index,
-                                        language_index=language_index)
-                enrich(art, characters)
-                art["pub_type"] = _detect_pub_type(art)
-                art["topic"]    = _detect_topic(art)
-                if _is_peace_only(art):
-                    peace_articles.append(art)
-                else:
-                    main_articles.append(art)
-            elif item_dt < target_dt:
-                past_target = True
+    try:
+        for page in range(1, 9999):
+            items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
+            if not items:
                 break
 
-        if past_target or len(items) < PAGE_SIZE:
-            break
+            past_target = False
+            for item in items:
+                pub = (item.get("publishdate", "") or "")[:19]
+                try:
+                    item_dt = datetime.fromisoformat(pub).date()
+                except Exception:
+                    continue
+
+                if item_dt == target_dt:
+                    art = _api_item_to_dict(item, source_index=source_index,
+                                            language_index=language_index)
+                    enrich(art, characters)
+                    art["pub_type"] = _detect_pub_type(art)
+                    art["topic"]    = _detect_topic(art)
+                    if _is_peace_only(art):
+                        peace_articles.append(art)
+                    else:
+                        main_articles.append(art)
+                elif item_dt < target_dt:
+                    past_target = True
+                    break
+
+            if past_target or len(items) < PAGE_SIZE:
+                break
+    finally:
+        browser.close()
+        pw.stop()
 
     print(f"נמצאו {len(main_articles)} כתבות ראשיות + {len(peace_articles)} כתבות שלום ישראלי-פלסטיני עבור {target_date}")
     return main_articles, peace_articles
@@ -1941,7 +1945,7 @@ def fetch_archive_range(
 
     source_index = load_source_index(config)
     print("מתחבר ל-API יפעת...")
-    session, token = _ifat_http_login(config)
+    pw, browser, bpage, token = _ifat_browser_login(config)
     print("מחובר. מתחיל שליפה...\n")
 
     PAGE_SIZE   = 100
@@ -1951,64 +1955,68 @@ def fetch_archive_range(
     newest_seen: Optional[str] = None
     oldest_seen: Optional[str] = None
 
-    for page in range(1, 99_999):
-        items = _ifat_fetch_page_http(session, token, page=page, page_size=PAGE_SIZE)
-        if not items:
-            print("  ← אין עוד כתבות ב-API.")
-            break
-
-        pages_fetched += 1
-        in_range_this_page = 0
-        past_range         = False
-
-        for item in items:
-            pub = (item.get("publishdate", "") or "")[:19]
-            try:
-                item_dt = datetime.fromisoformat(pub).date()
-            except Exception:
-                continue
-
-            if item_dt > to_dt:
-                continue
-
-            if item_dt < from_dt:
-                past_range = True
+    try:
+        for page in range(1, 99_999):
+            items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
+            if not items:
+                print("  ← אין עוד כתבות ב-API.")
                 break
 
-            art = _api_item_to_dict(item, source_index=source_index,
-                                    language_index=_language_index_cache or {})
-            enrich(art, characters)
-            art["pub_type"] = _detect_pub_type(art)
-            art["topic"]    = _detect_topic(art)
-            batch.append(art)
-            in_range_this_page += 1
+            pages_fetched += 1
+            in_range_this_page = 0
+            past_range         = False
 
-            date_str = item_dt.strftime("%d/%m/%Y")
-            if newest_seen is None:
-                newest_seen = date_str
-            oldest_seen = date_str
+            for item in items:
+                pub = (item.get("publishdate", "") or "")[:19]
+                try:
+                    item_dt = datetime.fromisoformat(pub).date()
+                except Exception:
+                    continue
 
-        print(
-            f"  דף {page:4d} | בטווח: {in_range_this_page:3d} | "
-            f"אצווה: {len(batch):4d} | "
-            f"סה\"כ נכתב: {total_written:5d} | "
-            f"תאריך אחרון: {oldest_seen or '—'}"
-        )
+                if item_dt > to_dt:
+                    continue
 
-        if len(batch) >= write_batch_size:
-            print(f"\n  → כותב {len(batch)} כתבות לטאב '{archive_sheet}'...")
-            append_to_sheet(batch, archive_cfg)
-            total_written += len(batch)
-            batch = []
-            print(f"  סה\"כ נכתב עד כה: {total_written}\n")
+                if item_dt < from_dt:
+                    past_range = True
+                    break
 
-        if past_range:
-            print(f"\n  ← הגענו לפני {from_date_str} — עוצרים.")
-            break
+                art = _api_item_to_dict(item, source_index=source_index,
+                                        language_index=_language_index_cache or {})
+                enrich(art, characters)
+                art["pub_type"] = _detect_pub_type(art)
+                art["topic"]    = _detect_topic(art)
+                batch.append(art)
+                in_range_this_page += 1
 
-        if len(items) < PAGE_SIZE:
-            print("  ← דף חלקי — סוף הנתונים ב-API.")
-            break
+                date_str = item_dt.strftime("%d/%m/%Y")
+                if newest_seen is None:
+                    newest_seen = date_str
+                oldest_seen = date_str
+
+            print(
+                f"  דף {page:4d} | בטווח: {in_range_this_page:3d} | "
+                f"אצווה: {len(batch):4d} | "
+                f"סה\"כ נכתב: {total_written:5d} | "
+                f"תאריך אחרון: {oldest_seen or '—'}"
+            )
+
+            if len(batch) >= write_batch_size:
+                print(f"\n  → כותב {len(batch)} כתבות לטאב '{archive_sheet}'...")
+                append_to_sheet(batch, archive_cfg)
+                total_written += len(batch)
+                batch = []
+                print(f"  סה\"כ נכתב עד כה: {total_written}\n")
+
+            if past_range:
+                print(f"\n  ← הגענו לפני {from_date_str} — עוצרים.")
+                break
+
+            if len(items) < PAGE_SIZE:
+                print("  ← דף חלקי — סוף הנתונים ב-API.")
+                break
+    finally:
+        browser.close()
+        pw.stop()
 
     # Write whatever remains in the last batch
     if batch:
