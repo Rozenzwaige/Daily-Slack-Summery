@@ -1368,7 +1368,7 @@ def _ifat_browser_login(config: dict):
 
     bpage.on("response", _on_resp)
 
-    bpage.goto("https://media.ifat.com/login", wait_until="networkidle")
+    bpage.goto("https://media.ifat.com/login", wait_until="load", timeout=60000)
 
     # Dismiss cookie consent popup if present
     try:
@@ -1394,7 +1394,7 @@ def _ifat_browser_login(config: dict):
     bpage.locator("input").nth(0).fill(config["ifat_username"])
     bpage.locator("input").nth(1).fill(config["ifat_password"])
     bpage.locator("input").nth(1).press("Enter")
-    bpage.wait_for_url("**/dashboard**", timeout=20000)
+    bpage.wait_for_url("**/dashboard**", timeout=40000)
 
     # Extract token (from intercepted response or localStorage)
     token = token_holder.get("token", "")
@@ -1790,6 +1790,7 @@ def fetch_api_articles(
     main_articles:  list[dict] = []
     peace_articles: list[dict] = []
     PAGE_SIZE = 100
+    _fields_printed = False   # one-time: print all API fields from first item
 
     try:
         for page in range(1, 9999):
@@ -1799,6 +1800,13 @@ def fetch_api_articles(
 
             past_target = False
             for item in items:
+                if not _fields_printed:
+                    print("\n[DEBUG] כל השדות הזמינים ב-API יפעת (כתבה ראשונה):")
+                    for k, v in item.items():
+                        print(f"  {k!r}: {str(v)[:120]!r}")
+                    print()
+                    _fields_printed = True
+
                 pub = (item.get("publishdate", "") or "")[:19]
                 try:
                     item_dt = datetime.fromisoformat(pub).date()
