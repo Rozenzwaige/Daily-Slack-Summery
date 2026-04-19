@@ -12,37 +12,29 @@ on:
 
 jobs:
   fetch-ifat:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: ifatPub/requirements.txt
-
       - name: Install Python dependencies
         working-directory: ifatPub
         run: pip install -r requirements.txt
-
-      - name: Install Playwright browser
-        run: playwright install chromium --with-deps
 
       - name: Write Google credentials
         working-directory: ifatPub
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        shell: bash
         run: echo "$GOOGLE_CREDENTIALS_JSON" > credentials.json
 
       - name: Write Ifat config
         working-directory: ifatPub
         env:
           IFAT_CONFIG_JSON: ${{ secrets.IFAT_CONFIG_JSON }}
+        shell: bash
         run: echo "$IFAT_CONFIG_JSON" > ifat_config.json
 
       - name: Fetch Ifat articles → Google Sheets
