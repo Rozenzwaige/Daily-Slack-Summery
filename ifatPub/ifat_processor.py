@@ -1461,6 +1461,7 @@ def _ifat_http_login(config: dict):
         for payload in payloads:
             try:
                 resp = session.post(url, json=payload, timeout=30)
+                print(f"  [DEBUG] {url} → status={resp.status_code} body={resp.text[:200]!r}")
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict):
@@ -1468,7 +1469,8 @@ def _ifat_http_login(config: dict):
                         if token and token.startswith("ey"):
                             print(f"  HTTP login הצליח דרך {url}")
                             return session, token
-            except Exception:
+            except Exception as e:
+                print(f"  [DEBUG] {url} → exception: {e}")
                 continue
 
     raise RuntimeError("HTTP login נכשל — לא הצלחנו לקבל token מאף endpoint")
