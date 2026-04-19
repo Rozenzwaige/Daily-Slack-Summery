@@ -1066,9 +1066,19 @@ def _get_worksheet(config: dict):
     return ws
 
 
+def _normalize_date(date_str: str) -> str:
+    """Ensure date is DD/MM/YYYY (4-digit year). Fixes DD/MM/YY."""
+    if not date_str:
+        return date_str
+    parts = date_str.split("/")
+    if len(parts) == 3 and len(parts[2]) == 2:
+        parts[2] = "20" + parts[2]
+    return "/".join(parts)
+
+
 def _row_sort_key(row: list) -> datetime:
     """Sort key for a data row: parse date (col A) + time (col B)."""
-    date_str = row[0] if len(row) > 0 else ""
+    date_str = _normalize_date(row[0] if len(row) > 0 else "")
     time_str = row[1] if len(row) > 1 else ""
     try:
         if time_str:
@@ -1290,8 +1300,12 @@ def append_to_sheet(articles: list[dict], config: dict, update_empty: bool = Fal
         except Exception as e:
             print(f"    אזהרה: לא ניתן לעדכן שורה {sheet_row}: {e}")
 
-    # --- Append genuinely new rows at the bottom ---
+    # --- Normalize dates and sort new rows by date+time before appending ---
     if new_rows:
+        for row in new_rows:
+            if row:
+                row[0] = _normalize_date(row[0])
+        new_rows.sort(key=_row_sort_key)
         ws.append_rows(new_rows, value_input_option="USER_ENTERED",
                        insert_data_option="INSERT_ROWS")
 
