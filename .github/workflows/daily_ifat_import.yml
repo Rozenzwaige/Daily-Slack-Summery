@@ -27,15 +27,15 @@ jobs:
         working-directory: ifatPub
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-        shell: bash
-        run: echo "$GOOGLE_CREDENTIALS_JSON" > credentials.json
+        shell: pwsh
+        run: $env:GOOGLE_CREDENTIALS_JSON | Out-File -FilePath credentials.json -Encoding utf8 -NoNewline
 
       - name: Write Ifat config
         working-directory: ifatPub
         env:
           IFAT_CONFIG_JSON: ${{ secrets.IFAT_CONFIG_JSON }}
-        shell: bash
-        run: echo "$IFAT_CONFIG_JSON" > ifat_config.json
+        shell: pwsh
+        run: $env:IFAT_CONFIG_JSON | Out-File -FilePath ifat_config.json -Encoding utf8 -NoNewline
 
       - name: Fetch Ifat articles → Google Sheets
         working-directory: ifatPub
