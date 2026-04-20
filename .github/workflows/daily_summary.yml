@@ -19,14 +19,13 @@ jobs:
           TODAY=$(date -u +%Y-%m-%d)
           ALREADY=$(gh run list \
             --workflow=daily_summary.yml \
-            --status=success \
-            --json createdAt,event \
+            --json createdAt,event,status \
             --limit 20 \
             | jq -r --arg d "$TODAY" \
               '[.[] | select(.event == "workflow_dispatch" and (.createdAt | startswith($d)))] | length > 0')
           echo "skip=$ALREADY" >> $GITHUB_OUTPUT
           if [ "$ALREADY" = "true" ]; then
-            echo "נמצא הפעלה ידנית מוצלחת היום — מדלג על השליחה."
+            echo "נמצאה הפעלה ידנית היום (בכל סטטוס) — מדלג על השליחה."
           fi
 
       - name: Checkout repository
