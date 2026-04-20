@@ -9,16 +9,55 @@ Topics: Israeli-Palestinian peace, settler violence, social inequality,
         West Bank, Gaza war, climate.
 """
 
+import json
 import os
 import sys
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import anthropic
 import feedparser
 import requests
 from bs4 import BeautifulSoup
+
+SEEN_FILE = Path(__file__).parent / "seen_articles.json"
+
+
+def _article_key(article: dict) -> str:
+    url = article.get("link", "").strip()
+    if url:
+        return url
+    return article.get("title", "")[:80].lower().strip()
+
+
+def load_seen_articles() -> set[str]:
+    if not SEEN_FILE.exists():
+        return set()
+    try:
+        data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        return {url for url, ts in data.items() if ts >= cutoff}
+    except Exception:
+        return set()
+
+
+def save_seen_articles(articles: list[dict]) -> None:
+    existing: dict = {}
+    if SEEN_FILE.exists():
+        try:
+            existing = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    fresh = {url: ts for url, ts in existing.items() if ts >= cutoff}
+    now = datetime.now(timezone.utc).isoformat()
+    for a in articles:
+        key = _article_key(a)
+        if key:
+            fresh[key] = now
+    SEEN_FILE.write_text(json.dumps(fresh, ensure_ascii=False, indent=2), encoding="utf-8")
 
 # ─── Credentials (injected as GitHub Secrets / env vars) ─────────────────────
 
@@ -37,6 +76,15 @@ KEYWORDS_HE = [
     "רווחה", "עוני", "אי-שוויון", "אי שוויון", "פערים", "הדרה",
     "ביטוח לאומי", "דמי אבטלה", "שכר מינימום", "יוקר המחיה", "דיור",
     "קיצוץ", "תקציב חברתי", "מחאה חברתית",
+    # כלכלה
+    "כלכלה", "בנק ישראל", "ריבית", "אינפלציה", "תעסוקה", "אבטלה",
+    "תקציב המדינה", "מיסוי", "מס הכנסה", "מע\"מ", "גירעון", "חוב לאומי",
+    "שוק ההון", "מניות", "הייטק", "יצוא", "יבוא", "סחר חוץ",
+    "יוקר המחיה", "מחירים", "עלות המחיה", "צרכנות",
+    # חינוך
+    "חינוך", "בית ספר", "בתי ספר", "מורים", "מורה", "שביתת מורים",
+    "השכלה גבוהה", "אוניברסיטה", "מכללה", "סטודנטים", "שכר לימוד",
+    "בגרות", "תלמידים", "פדגוגיה", "משרד החינוך",
     "אקלים", "שינוי האקלים", "סביבה", "גל חום", "בצורת", "הצפה",
     "שלום", "הסכם", "הפסקת אש", "משא ומתן", "שחרור חטופים",
     "חטופ", "ערבי", "בדואי", "מגזר ערבי", "דו-קיום",
@@ -50,6 +98,11 @@ KEYWORDS_EN = [
     "climate", "environment", "heat wave", "drought", "flood",
     "ceasefire", "peace", "hostage", "negotiation", "release",
     "Hamas", "Hezbollah", "airstrike", "bombing", "civilian", "casualt",
+    # economy
+    "economy", "inflation", "interest rate", "Bank of Israel", "tax", "employment",
+    "unemployment", "GDP", "deficit", "stock market", "cost of living",
+    # education
+    "education", "university", "school", "teachers strike", "tuition", "students",
 ]
 
 # ─── RSS sources ──────────────────────────────────────────────────────────────
@@ -63,6 +116,9 @@ GOOGLE_NEWS_QUERIES = [
     "פלסטינים ישראל",
     "אי שוויון חברתי ישראל",
     "רווחה ביטוח לאומי ישראל",
+    "כלכלה ישראל בנק ישראל",
+    "יוקר המחיה ישראל",
+    "חינוך ישראל",
     "אקלים ישראל",
     "שלום ישראל פלסטין",
     "Gaza ceasefire",
@@ -82,8 +138,8 @@ def is_recent(entry, hours: int = 26) -> bool:
                 return pub >= cutoff
             except Exception:
                 pass
-    # If no date is available, include the entry (better to over-include)
-    return True
+    # No date available — exclude to avoid stale articles from previous days
+    return False
 
 
 def is_relevant(title: str, summary: str = "") -> bool:
@@ -185,10 +241,11 @@ def fetch_rss_with_headers(name: str, url: str) -> list[dict]:
     return articles
 
 
-def scrape_homepage(name: str, url: str, article_substr: str = None, min_len: int = 18) -> list[dict]:
+def scrape_homepage(name: str, url: str, article_substr: str = None,
+                    min_len: int = 18, no_filter: bool = False) -> list[dict]:
     """
-    Scrape a news homepage by scanning all <a> links.
-    More robust than CSS selectors — works even after site redesigns.
+    Scrape a news page by scanning all <a> links.
+    no_filter=True: include all titles without keyword filtering (for topic-specific sections).
     """
     articles = []
     try:
@@ -222,7 +279,7 @@ def scrape_homepage(name: str, url: str, article_substr: str = None, min_len: in
                 continue
             seen.add(title_key)
 
-            if is_relevant(title):
+            if no_filter or is_relevant(title):
                 full_url = href if href.startswith("http") else url.rstrip("/") + "/" + href.lstrip("/")
                 articles.append({
                     "source":  name,
@@ -308,39 +365,48 @@ def collect_articles() -> list[dict]:
         all_articles.extend(batch)
         time.sleep(0.3)
 
-    print("📰 Scraping Israeli news pages...")
+    print("📰 Scraping Israeli news pages (general + welfare/society/education sections)...")
     homepage_sources = [
-        # הארץ — כמה מדורים
-        ("הארץ — חדשות",   "https://www.haaretz.co.il/news/local",      "/article"),
-        ("הארץ — חינוך",   "https://www.haaretz.co.il/news/education",  "/article"),
-        ("הארץ — סביבה",   "https://www.haaretz.co.il/nature",          "/article"),
-        # כאן וגל"צ
-        ("כאן חדשות",      "https://www.kan.org.il/",                   "/item/"),
-        ("גל\"צ",           "https://www.glz.co.il/",                   None),
+        # הארץ
+        ("הארץ — חדשות מקומי",  "https://www.haaretz.co.il/news/local",     "/article", False),
+        ("הארץ — חינוך ורווחה", "https://www.haaretz.co.il/news/education", "/article", True),
+        ("הארץ — כלכלה",        "https://www.haaretz.co.il/business",       "/article", True),
+        ("הארץ — סביבה",        "https://www.haaretz.co.il/nature",         "/article", True),
+        # ynet — topic pages (no_filter: כל הכתבות בעמוד כבר רלוונטיות)
+        ("ynet — רווחה",        "https://www.ynet.co.il/topics/%D7%A8%D7%95%D7%95%D7%97%D7%94", "/articles/", True),
+        ("ynet — חינוך",        "https://www.ynet.co.il/topics/%D7%97%D7%99%D7%A0%D7%95%D7%9A", "/articles/", True),
+        ("ynet — כלכלה",        "https://www.ynet.co.il/economy",           "/articles/", True),
+        # וואלה
+        ("וואלה — חברה ורווחה", "https://news.walla.co.il/category/90",     "/item/",     True),
+        ("וואלה — חינוך",       "https://news.walla.co.il/category/94",     "/item/",     True),
+        ("וואלה — מקומי",       "https://mekomi.walla.co.il/",              "/item/",     False),
         # ישראל היום
-        ("ישראל היום — רווחה",   "https://www.israelhayom.co.il/news/welfare",  None),
-        ("ישראל היום — חדשות",   "https://www.israelhayom.co.il/israelnow",     None),
+        ("ישראל היום — רווחה",    "https://www.israelhayom.co.il/news/welfare",    None, True),
+        ("ישראל היום — חינוך",    "https://www.israelhayom.co.il/news/education",  None, True),
+        ("ישראל היום — מוניציפלי","https://www.israelhayom.co.il/news/municipal",  None, False),
+        ("ישראל היום — חדשות",    "https://www.israelhayom.co.il/israelnow",       None, False),
+        # כאן וגל"צ
+        ("כאן חדשות",            "https://www.kan.org.il/",                 "/item/",     False),
+        ("גל\"צ",                 "https://www.glz.co.il/",                  None,         False),
     ]
-    for name, url, substr in homepage_sources:
-        batch = scrape_homepage(name, url, article_substr=substr)
+    for name, url, substr, nf in homepage_sources:
+        batch = scrape_homepage(name, url, article_substr=substr, no_filter=nf)
         print(f"   {name}: {len(batch)}")
         all_articles.extend(batch)
         time.sleep(0.5)
 
-    print("💰 Scraping economy & welfare news feeds...")
+    print("💰 Scraping economy pages (homepages — headlines are not paywalled)...")
     economy_sources = [
-        # גלובס — שני פידים
-        ("גלובס — כלכלה",    "https://www.globes.co.il/news/home.aspx?fid=9473", None),
-        ("גלובס — חברה",     "https://www.globes.co.il/news/home.aspx?fid=9917", None),
-        # כלכליסט — שני מדורים
-        ("כלכליסט — כל החדשות", "https://www.calcalist.co.il/allnews",     None),
-        ("כלכליסט — מקומי",     "https://www.calcalist.co.il/local_news",  None),
-        # דה מרקר — שני מדורים
-        ("דה מרקר — כל הכותרות", "https://www.themarker.com/misc/all-headlines", "/article"),
-        ("דה מרקר — צרכנות",     "https://www.themarker.com/consumer",          "/article"),
+        # גלובס — עמוד ראשי + מדור כלכלה (article links contain /news/article/)
+        ("גלובס",               "https://www.globes.co.il/",                    "/news/article/", True),
+        # כלכליסט — עמוד ראשי
+        ("כלכליסט",             "https://www.calcalist.co.il/",                 None,             True),
+        # דה מרקר — עמוד ראשי + צרכנות
+        ("דה מרקר",             "https://www.themarker.com/",                   "/article",       True),
+        ("דה מרקר — צרכנות",    "https://www.themarker.com/consumer",           "/article",       True),
     ]
-    for name, url, substr in economy_sources:
-        batch = scrape_homepage(name, url, article_substr=substr)
+    for name, url, substr, nf in economy_sources:
+        batch = scrape_homepage(name, url, article_substr=substr, no_filter=nf)
         print(f"   {name}: {len(batch)}")
         all_articles.extend(batch)
         time.sleep(0.5)
@@ -395,47 +461,50 @@ def summarise(articles: list[dict]) -> str:
 1. 🕊️ *שלום ישראלי-פלסטיני* — **רק** מגעים ישירים בין ישראל לפלסטינים: משא ומתן, הסכמים, שחרור חטופים, הפסקות אש בעזה
 2. 🔴 *אלימות מתנחלים ואירועי הגדה המערבית* — התקפות מתנחלים, פשעי שנאה, גירוש
 3. 💣 *המלחמה בעזה* — התפתחויות מרכזיות, נפגעים אזרחיים, מצב הומניטרי
-4. ⚖️ *אי-שוויון חברתי ורווחה* — תקציב, קיצוצים, מחאות, שכר, דיור, ביטוח לאומי
-5. 🌍 *אקלים וסביבה* — חדשות אקלים מישראל ומהאזור
-6. 🗞️ *קול פלסטיני* — מה מדווחים Wafa, Al-Jazeera, Ma'an ועיתונות פלסטינית
-7. 🌐 *אזורי ובינלאומי* — ישראל-איראן, ישראל-לבנון, לחצים דיפלומטיים מהמעצמות, סנקציות — **לא** ישראל-פלסטין שנמצא בקטגוריה 1
+4. ⚖️ *חברה, רווחה וחינוך* — תקציב, קיצוצים, מחאות, שכר, דיור, ביטוח לאומי, חינוך, השכלה גבוהה, שביתות מורים
+5. 💰 *כלכלה* — בנק ישראל, ריבית, אינפלציה, תקציב המדינה, תעסוקה, יוקר המחיה, שוק ההון
+6. 🌍 *אקלים וסביבה* — חדשות אקלים מישראל ומהאזור
+7. 🗞️ *קול פלסטיני* — מה מדווחים Wafa, Al-Jazeera, Ma'an ועיתונות פלסטינית
+8. 🌐 *אזורי ובינלאומי* — ישראל-איראן, ישראל-לבנון, לחצים דיפלומטיים מהמעצמות, סנקציות — **לא** ישראל-פלסטין שנמצא בקטגוריה 1
 
-*פורמט — השתמש בדיוק בתבנית הזו:*
+*כללים מחייבים — קרא לפני הכל:*
+1. **סקציה ללא כתבות רלוונטיות ברשימה — אל תכתוב אותה בכלל.** אסור לכתוב "לא דווח", "אין חדשות", או כל ניסוח דומה. פשוט דלג לסקציה הבאה.
+2. כל נקודה: משפט אחד עד שניים, 2–4 נקודות לסקציה.
+3. אל תמציא מידע שאינו מופיע ברשימה.
+4. שפה: עברית תקנית ופשוטה.
+5. *חובה:* בסוף כל נקודה הוסף קישור למקור בפורמט Slack: `<URL|שם_מקור>`
+   לדוגמה: `• ישראל הודיעה על הפסקת אש. <https://www.ynet.co.il/article/123|ynet>`
+6. כתבות עם מקור "📌 נוסף ידנית" — כלול אותן תחת הקטגוריה המתאימה וסמן כ-📌
+
+*פורמט הפלט (כלול רק סקציות שיש להן תוכן):*
 
 📰 *סיכום חדשות יומי | {today}*
 
 *🕊️ שלום ישראלי-פלסטיני*
-• ...
+• [רק אם יש מגעים ישירים ישראל-פלסטינים]
 
 *🔴 גדה המערבית ומתנחלים*
-• ...
+• [רק אם יש אירועים]
 
 *💣 המלחמה בעזה*
-• ...
+• [רק אם יש התפתחויות]
 
-*⚖️ חברה ורווחה*
-• ...
+*⚖️ חברה, רווחה וחינוך*
+• [רק אם יש כתבות]
+
+*💰 כלכלה*
+• [רק אם יש כתבות]
 
 *🌍 אקלים וסביבה*
-• ...
+• [רק אם יש כתבות]
 
 *🗞️ קול פלסטיני*
-• ...
+• [רק אם יש כתבות]
 
 *🌐 אזורי ובינלאומי*
-• ...
+• [רק אם יש כתבות]
 
-_מקורות: ynet, הארץ, N12, שיחה מקומית, גלובס, כלכליסט, Guardian, NYT, Al-Jazeera, Wafa ועוד_
-
-*כללים:*
-- כל נקודה: משפט אחד עד שניים
-- 2–4 נקודות לקטגוריה (אם אין חדשות בקטגוריה — כתוב "לא דווח")
-- אל תמציא מידע שאינו מופיע ברשימה
-- שפה: עברית תקנית ופשוטה
-- *חובה:* בסוף כל נקודת סיכום הוסף קישור למקור בפורמט Slack בדיוק כך: `<URL|שם_מקור>`
-  לדוגמה: `• ישראל הודיעה על הפסקת אש זמנית ברצועת עזה. <https://www.ynet.co.il/article/123|ynet>`
-  השתמש ב-URL מהרשימה (שדה "קישור:") של הכתבה שממנה לקחת את המידע.
-- כתבות עם מקור "📌 נוסף ידנית" הן קלט אישי חשוב — יש לכלול אותן בסיכום תחת הקטגוריה המתאימה ולסמן אותן כ-📌
+_מקורות: ynet, הארץ, וואלה, N12, שיחה מקומית, גלובס, כלכליסט, דה מרקר, Guardian, NYT, Al-Jazeera, Wafa ועוד_
 
 ---
 כתבות לסיכום:
@@ -508,9 +577,14 @@ def main():
 
     articles = collect_articles()
 
+    # Filter out articles already sent in the last 48 hours
+    seen = load_seen_articles()
+    before = len(articles)
+    articles = [a for a in articles if _article_key(a) not in seen]
+    print(f"🔁 Dedup: {before} → {len(articles)} articles (filtered {before - len(articles)} already seen)")
+
     if not articles:
-        msg = f"📰 *סיכום חדשות {datetime.now().strftime('%d/%m/%Y')}*\nלא נמצאו כתבות רלוונטיות ב-24 השעות האחרונות."
-        send_to_slack(msg)
+        print("[INFO] No new articles — skipping Slack message.")
         return
 
     print("\n🤖 Summarising with Claude...")
@@ -519,6 +593,7 @@ def main():
     print("\n📤 Posting to Slack...")
     send_to_slack(summary)
 
+    save_seen_articles(articles)
     print("\n✅ Done!\n")
 
 

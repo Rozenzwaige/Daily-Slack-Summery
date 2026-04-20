@@ -2,40 +2,34 @@ name: Daily News Summary
 
 on:
   schedule:
-    # FALLBACK ONLY — cron-job.org is the primary trigger at 06:00 UTC (09:00 IDT).
-    # This runs at 08:00 UTC (11:00 IDT) as a safety net if cron-job.org fails.
-    # Duplicate prevention in the check job will skip this if already ran today.
-    - cron: "0 8 * * *"
+    # 05:00 UTC = 08:00 IDT (Israel Daylight Time, UTC+3)
+    # Sunday–Thursday only. GitHub cron may arrive up to ~30 min late.
+    - cron: "0 5 * * 0,1,2,3,4"
 
-  # Allow triggering manually from the GitHub Actions UI
+  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
 jobs:
-  # ── Job 1: decide whether to run ──────────────────────────────────────────
-  check:
+  send-news-summary:
     runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.decide.outputs.should_run }}
+    timeout-minutes: 15
 
     steps:
-      - name: Decide whether to run
-        id: decide
+      - name: Skip if already ran successfully today
+        id: guard
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Manual triggers (workflow_dispatch) always run
-          if [ "${{ github.event_name }}" != "schedule" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "▶️  Manual trigger — running."
-            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Scheduled run: skip if a manual run already succeeded today
           TODAY=$(date -u +%Y-%m-%d)
           ALREADY=$(gh run list \
             --repo "${{ github.repository }}" \
             --workflow "daily_news.yml" \
-            --event workflow_dispatch \
             --status success \
             --json createdAt \
             --limit 10 | python3 -c "
@@ -47,25 +41,19 @@ jobs:
           ")
 
           if [ "$ALREADY" = "true" ]; then
-            echo "✋ Manual run already completed today — skipping scheduled run."
-            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "✋ Already ran successfully today — skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "▶️  No manual run today — proceeding with scheduled run."
-            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "▶️  Running."
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-  # ── Job 2: run the summary (only if check approved it) ────────────────────
-  send-news-summary:
-    needs: check
-    if: needs.check.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
       - name: Checkout repository
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -73,12 +61,23 @@ jobs:
           cache-dependency-path: news_summary/requirements.txt
 
       - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
         run: pip install -r news_summary/requirements.txt
 
+      - name: Restore seen-articles cache
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: news_summary/seen_articles.json
+          key: seen-articles-${{ github.run_id }}
+          restore-keys: |
+            seen-articles-
+
       - name: Run daily news summary
+        if: steps.guard.outputs.skip != 'true'
         env:
-          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
-          SLACK_WEBHOOK_URL:   ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_BOT_TOKEN:     ${{ secrets.SLACK_BOT_TOKEN }}
-          NEWS_INPUTS_CHANNEL: ${{ secrets.NEWS_INPUTS_CHANNEL }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_WEBHOOK_URL:    ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_BOT_TOKEN:      ${{ secrets.SLACK_BOT_TOKEN }}
+          NEWS_INPUTS_CHANNEL:  ${{ secrets.NEWS_INPUTS_CHANNEL }}
         run: python news_summary/main.py

@@ -2,7 +2,7 @@ name: Daily Slack Summary
 
 on:
   schedule:
-    - cron: "0 6 * * 0,1,2,3,4"
+    - cron: "0 5 * * 0,1,2,3,4"
   workflow_dispatch:
 
 jobs:
@@ -10,10 +10,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check if already sent today (scheduled runs only)
+        if: github.event_name == 'schedule'
+        id: guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          ALREADY=$(gh run list \
+            --workflow=daily_summary.yml \
+            --status=success \
+            --json createdAt,event \
+            --limit 20 \
+            | jq -r --arg d "$TODAY" \
+              '[.[] | select(.event == "workflow_dispatch" and (.createdAt | startswith($d)))] | length > 0')
+          echo "skip=$ALREADY" >> $GITHUB_OUTPUT
+          if [ "$ALREADY" = "true" ]; then
+            echo "נמצא הפעלה ידנית מוצלחת היום — מדלג על השליחה."
+          fi
+
       - name: Checkout repository
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -21,10 +42,12 @@ jobs:
           cache-dependency-path: ifatPub/requirements_slack.txt
 
       - name: Install dependencies
+        if: steps.guard.outputs.skip != 'true'
         working-directory: ifatPub
         run: pip install -r requirements_slack.txt
 
       - name: Send Slack summary
+        if: steps.guard.outputs.skip != 'true'
         working-directory: ifatPub
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
