@@ -1170,6 +1170,54 @@ def _set_row_heights(ws, num_data_rows: int, height_px: int = 21):
         print(f"    אזהרה: לא ניתן לקבוע גובה שורות: {e}")
 
 
+def _dedupe_and_sort_sheet(ws):
+    """
+    Post-process the sheet:
+    1. Remove duplicate rows that share the same serial (col J) — keep first occurrence.
+    2. Sort all data rows by date (col A) + time (col B), oldest first (top → bottom).
+    Called automatically after new rows are appended.
+    """
+    try:
+        all_values = ws.get_all_values()
+        if len(all_values) <= 1:
+            return
+
+        data_rows   = all_values[1:]
+        orig_count  = len(data_rows)
+
+        # ── Deduplicate ───────────────────────────────────────────────────────
+        seen_serials: set[str] = set()
+        deduped: list[list]    = []
+        for row in data_rows:
+            serial = row[9].strip() if len(row) > 9 else ""
+            if serial:
+                if serial not in seen_serials:
+                    seen_serials.add(serial)
+                    deduped.append(row)
+                # else: skip duplicate
+            else:
+                deduped.append(row)   # שורה ידנית ללא מספר סידורי — שמור
+
+        # ── Sort ──────────────────────────────────────────────────────────────
+        deduped.sort(key=_row_sort_key)
+
+        duplicates_removed = orig_count - len(deduped)
+        if deduped == data_rows:
+            return   # nothing changed
+
+        # ── Rewrite ───────────────────────────────────────────────────────────
+        ws.batch_clear([f"A2:ZZ{1 + orig_count}"])
+        if deduped:
+            ws.update("A2", deduped, value_input_option="USER_ENTERED")
+
+        if duplicates_removed:
+            print(f"    הוסרו {duplicates_removed} כפילויות")
+        print(f"    הגיליון מוין מחדש ({len(deduped)} שורות)")
+
+    except Exception as e:
+        print(f"    אזהרה: לא ניתן למיין/לנקות כפילויות: {e}")
+
+
 def append_to_sheet(articles: list[dict], config: dict, update_empty: bool = False,
                     sheet_name: Optional[str] = None):
     """Write articles to the Google Sheet — APPEND ONLY, never clears the sheet.
@@ -1314,6 +1362,10 @@ def append_to_sheet(articles: list[dict], config: dict, update_empty: bool = Fal
         total_rows = len(raw_data) + len(new_rows)
         _set_row_heights(ws, total_rows)
         _set_dropdown_validation(ws, total_rows)
+
+    # --- Deduplicate + sort the full sheet after new rows were added ---
+    if new_rows:
+        _dedupe_and_sort_sheet(ws)
 
     # --- Print summary ---
     if skipped:
