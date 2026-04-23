@@ -2,6 +2,8 @@ name: Daily Slack Summary
 
 on:
   schedule:
+    # 05:00 UTC = 08:00 IDT (Israel Daylight Time, UTC+3)
+    # Sunday–Thursday only. GitHub cron may arrive up to ~30 min late.
     - cron: "0 5 * * 0,1,2,3,4"
   workflow_dispatch:
 
@@ -10,22 +12,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check if already sent today (scheduled runs only)
-        if: github.event_name == 'schedule'
+      - name: Skip if already ran successfully today
         id: guard
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "▶️  Manual trigger — running."
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           TODAY=$(date -u +%Y-%m-%d)
           ALREADY=$(gh run list \
-            --workflow=daily_summary.yml \
-            --json createdAt,event,status \
-            --limit 20 \
-            | jq -r --arg d "$TODAY" \
-              '[.[] | select(.event == "workflow_dispatch" and (.createdAt | startswith($d)))] | length > 0')
-          echo "skip=$ALREADY" >> $GITHUB_OUTPUT
+            --repo "${{ github.repository }}" \
+            --workflow "daily_summary.yml" \
+            --status success \
+            --json createdAt \
+            --limit 10 | python3 -c "
+          import sys, json
+          runs = json.load(sys.stdin)
+          today = '$TODAY'
+          found = any(r['createdAt'][:10] == today for r in runs)
+          print('true' if found else 'false')
+          ")
+
           if [ "$ALREADY" = "true" ]; then
-            echo "נמצאה הפעלה ידנית היום (בכל סטטוס) — מדלג על השליחה."
+            echo "✋ Already ran successfully today — skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "▶️  Running."
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Checkout repository
