@@ -119,12 +119,10 @@ print(f"  Scraping test | {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 print(f"{'='*60}\n")
 
 tests = [
-    # (label, type, url, substr)
-    # RSS
-    ("ynet RSS",              "rss",    "https://www.ynet.co.il/Integration/StoryRss2.xml",        None),
-    ("שיחה מקומית RSS",       "rss",    "https://www.mekomit.co.il/feed/",                          None),
-    ("N12 / מאקו",            "scrape", "https://www.n12.co.il/",                              "Article-", False),
-    ("Al-Jazeera RSS",        "rss",    "https://www.aljazeera.com/xml/rss/all.xml",                None),
+    # (label, type, url, substr [, debug])
+    # ── עברית — RSS ──────────────────────────────────────────────────────────────
+    ("ynet RSS",                "rss",    "https://www.ynet.co.il/Integration/StoryRss2.xml",        None),
+    ("שיחה מקומית RSS",         "rss",    "https://www.mekomit.co.il/feed/",                          None),
     ("הארץ — Google News",      "rss",    "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he", None, False),
     ("דה מרקר — Google News",   "rss",    "https://news.google.com/rss/search?q=site:themarker.com+when:1d&hl=he&gl=IL&ceid=IL:he", None, False),
     ("גלובס RSS — כלכלה",       "rss",    "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=2",   None, False),
@@ -133,13 +131,22 @@ tests = [
     ("גלובס RSS — עסקים",       "rss",    "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=594", None, False),
     ("וואלה חדשות RSS",         "rss",    "https://rss.walla.co.il/feed/22",                        None, False),
     ("וואלה כלכלה RSS",         "rss",    "https://rss.walla.co.il/feed/2",                         None, False),
-    # ynet topics — filter תוקן
-    ("ynet — רווחה",           "scrape", "https://www.ynet.co.il/topics/%D7%A8%D7%95%D7%95%D7%97%D7%94", "/article/", False),
-    ("ynet — כלכלה",           "scrape", "https://www.ynet.co.il/economy",                          "/article/", False),
-    # ישראל היום
-    ("ישראל היום — רווחה",     "scrape", "https://www.israelhayom.co.il/news/welfare",              None, False),
-    ("ישראל היום — חינוך",     "scrape", "https://www.israelhayom.co.il/news/education",            None, False),
-    # גלובס — filter תוקן
+    # ── בינלאומי — RSS / Google News ────────────────────────────────────────────
+    ("Al-Jazeera RSS",          "rss",    "https://www.aljazeera.com/xml/rss/all.xml",                None),
+    ("NYT Middle East",         "rss",    "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml", None),
+    ("Guardian Middle East",    "rss",    "https://www.theguardian.com/world/middleeast/rss",         None),
+    ("Washington Post",         "rss",    "https://feeds.washingtonpost.com/rss/world",               None),
+    ("Le Monde (English)",      "rss",    "https://www.lemonde.fr/en/rss/une.xml",                   None),
+    ("Reuters — Google News",   "rss",    "https://news.google.com/rss/search?q=site:reuters.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en", None, False),
+    ("AP — Google News",        "rss",    "https://news.google.com/rss/search?q=site:apnews.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en", None, False),
+    ("AFP — Google News",       "rss",    "https://news.google.com/rss/search?q=AFP+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en", None, False),
+    ("Wafa — Google News",      "rss",    "https://news.google.com/rss/search?q=site:wafa.ps+when:1d&hl=en-US&gl=US&ceid=US:en", None, False),
+    # ── עברית — scraping ─────────────────────────────────────────────────────────
+    ("N12 / מאקו",              "scrape", "https://www.n12.co.il/",                              "Article-", False),
+    ("ynet — רווחה",            "scrape", "https://www.ynet.co.il/topics/%D7%A8%D7%95%D7%95%D7%97%D7%94", "/article/", False),
+    ("ynet — כלכלה",            "scrape", "https://www.ynet.co.il/economy",                          "/article/", False),
+    ("ישראל היום — רווחה",      "scrape", "https://www.israelhayom.co.il/news/welfare",              None, False),
+    ("ישראל היום — חינוך",      "scrape", "https://www.israelhayom.co.il/news/education",            None, False),
     ("גלובס",                   "scrape", "https://www.globes.co.il/",                              "/news/article.aspx", False),
 ]
 

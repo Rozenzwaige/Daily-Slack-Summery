@@ -439,8 +439,15 @@ def collect_articles() -> list[dict]:
         ("Guardian Middle East", "https://www.theguardian.com/world/middleeast/rss"),
         ("NYT Middle East",      "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
         ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
-        ("Wafa",                 "https://english.wafa.ps/rss"),
-        ("Ma'an News",           "https://www.maannews.com/rss/latest-news"),
+        # Wafa direct RSS returns 404 — using Google News instead
+        ("Wafa",                 "https://news.google.com/rss/search?q=site:wafa.ps+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        # Ma'an News is behind Cloudflare — removed
+        # International wire / prestige press (Reuters & AP have no public RSS — via Google News)
+        ("Reuters",              "https://news.google.com/rss/search?q=site:reuters.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("AP",                   "https://news.google.com/rss/search?q=site:apnews.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("AFP",                  "https://news.google.com/rss/search?q=AFP+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("Washington Post",      "https://feeds.washingtonpost.com/rss/world"),
+        ("Le Monde",             "https://www.lemonde.fr/en/rss/une.xml"),
         # הארץ — Google News RSS (מתעדכן בזמן אמת)
         ("הארץ",                 "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he"),
         # דה מרקר — Google News RSS
@@ -600,7 +607,7 @@ def summarise(articles: list[dict]) -> str:
 *🌐 אזורי ובינלאומי*
 • [רק אם יש כתבות]
 
-_מקורות: ynet, הארץ, וואלה, N12, שיחה מקומית, גלובס, כלכליסט, דה מרקר, Guardian, NYT, Al-Jazeera, Wafa ועוד_
+_מקורות: ynet, הארץ, וואלה, N12, שיחה מקומית, גלובס, דה מרקר, Guardian, NYT, Washington Post, Reuters, AP, AFP, Le Monde, Al-Jazeera, Wafa ועוד_
 
 ---
 כתבות לסיכום:
