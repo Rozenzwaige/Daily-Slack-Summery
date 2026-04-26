@@ -63,8 +63,27 @@ def save_seen_articles(articles: list[dict]) -> None:
 
 SLACK_WEBHOOK_URL  = os.environ["SLACK_WEBHOOK_URL"]
 ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
-SLACK_BOT_TOKEN    = os.environ.get("SLACK_BOT_TOKEN", "")     # optional — for #news-inputs
-NEWS_INPUTS_CHANNEL = os.environ.get("NEWS_INPUTS_CHANNEL", "") # channel ID, e.g. C08XXXXXXXX
+SLACK_BOT_TOKEN    = os.environ.get("SLACK_BOT_TOKEN", "")
+NEWS_INPUTS_CHANNEL = os.environ.get("NEWS_INPUTS_CHANNEL", "")
+HAARETZ_COOKIES    = os.environ.get("HAARETZ_COOKIES", "")
+
+
+def _parse_cookies(cookie_str: str) -> dict:
+    """Parse a cookie string like 'name1=val1; name2=val2' into a dict."""
+    result = {}
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, _, v = part.partition("=")
+            result[k.strip()] = v.strip()
+    return result
+
+
+COOKIES_BY_DOMAIN: dict[str, dict] = {}
+if HAARETZ_COOKIES:
+    _htz = _parse_cookies(HAARETZ_COOKIES)
+    COOKIES_BY_DOMAIN["haaretz.co.il"]  = _htz
+    COOKIES_BY_DOMAIN["themarker.com"]  = _htz   # דה מרקר — אותו מנוי
 
 # ─── Topic keywords ───────────────────────────────────────────────────────────
 
@@ -293,6 +312,14 @@ def fetch_rss_with_headers(name: str, url: str) -> list[dict]:
     return articles
 
 
+def _cookies_for(url: str) -> dict:
+    """Return stored cookies for the domain of this URL, if any."""
+    for domain, cookies in COOKIES_BY_DOMAIN.items():
+        if domain in url:
+            return cookies
+    return {}
+
+
 def scrape_homepage(name: str, url: str, article_substr: str = None,
                     min_len: int = 18, no_filter: bool = False) -> list[dict]:
     """
@@ -306,7 +333,7 @@ def scrape_homepage(name: str, url: str, article_substr: str = None,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
         }
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = requests.get(url, headers=headers, cookies=_cookies_for(url), timeout=15)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "lxml")
 

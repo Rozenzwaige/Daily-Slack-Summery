@@ -80,4 +80,5 @@ jobs:
           SLACK_WEBHOOK_URL:    ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_BOT_TOKEN:      ${{ secrets.SLACK_BOT_TOKEN }}
           NEWS_INPUTS_CHANNEL:  ${{ secrets.NEWS_INPUTS_CHANNEL }}
+          HAARETZ_COOKIES:      ${{ secrets.HAARETZ_COOKIES }}
         run: python news_summary/main.py
