@@ -1,0 +1,7 @@
+slack-bolt>=1.18
+slack-sdk>=3.26
+anthropic>=0.25
+feedparser>=6.0
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.1

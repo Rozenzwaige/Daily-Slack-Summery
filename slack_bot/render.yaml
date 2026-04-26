@@ -1,0 +1,13 @@
+services:
+  - type: worker          # background process — always running, no HTTP port needed
+    name: itamar-news-bot
+    runtime: python
+    buildCommand: pip install -r slack_bot/requirements.txt
+    startCommand: python slack_bot/bot.py
+    envVars:
+      - key: SLACK_BOT_TOKEN
+        sync: false       # set manually in Render dashboard
+      - key: SLACK_APP_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
