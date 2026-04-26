@@ -75,6 +75,11 @@ KEYWORDS_HE = [
     "פלסטינ", "מתנחל", "התנחלות", "כיבוש",
     "ג'נין", "ג׳נין", "שכם", "נאבלוס", "חברון", "רמאללה", "טול כרם", "קלקיליה",
     "מחמוד עבאס", "הרשות הפלסטינית", "הרשות הפלסטינאית",
+    # אלימות מתנחלים
+    "אלימות מתנחלים", "פוגרום", "גירוש פלסטינים", "הרס בתים",
+    "הצתה", "כריתת עצים", "ונדליזם", "פשע שנאה",
+    "סנקציות על מתנחלים", "עצור מתנחל", "מתנחלים חמושים",
+    "גבעות תנועה", "חוות מתנחלים", "מאחז",
     "שלום", "הסכם", "הפסקת אש", "משא ומתן", "שחרור חטופים",
     "חטופ", "ערבי", "בדואי", "מגזר ערבי", "דו-קיום",
     "חמאס", "ג'יהאד", "חיזבאלה",
@@ -111,6 +116,8 @@ KEYWORDS_EN = [
     "Gaza", "West Bank", "settler", "settlement", "Palestinian", "occupation",
     "Jenin", "Nablus", "Hebron", "Ramallah", "Tulkarm", "Qalqilya",
     "Abbas", "Palestinian Authority",
+    "settler violence", "settler attack", "pogrom", "arson", "price tag",
+    "settler sanctions", "demolition", "outpost", "settler rampage",
     "ceasefire", "peace", "hostage", "negotiation", "release",
     "Hamas", "Hezbollah", "airstrike", "bombing", "civilian", "casualt",
     # חברה ורווחה
@@ -136,6 +143,7 @@ KEYWORDS_EN = [
 GOOGLE_NEWS_QUERIES = [
     "עזה מלחמה",
     "גדה המערבית מתנחלים",
+    "אלימות מתנחלים פלסטינים",
     "פלסטינים ישראל",
     "אי שוויון חברתי ישראל",
     "רווחה ביטוח לאומי ישראל",
