@@ -440,11 +440,15 @@ def collect_articles() -> list[dict]:
         ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
         ("Wafa",                 "https://english.wafa.ps/rss"),
         ("Ma'an News",           "https://www.maannews.com/rss/latest-news"),
-        # הארץ ודה מרקר — RSS עדיף על scraping כי האתרים JS-heavy
-        ("הארץ",                 "https://www.haaretz.co.il/cmlink/1.1885897"),
-        ("הארץ — חינוך",         "https://www.haaretz.co.il/cmlink/1.4318068"),
-        ("הארץ — כלכלה",         "https://www.haaretz.co.il/cmlink/1.1953796"),
-        ("דה מרקר",              "https://www.themarker.com/cmlink/1.4318069"),
+        # הארץ — Google News RSS (מתעדכן בזמן אמת)
+        ("הארץ",                 "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he"),
+        # דה מרקר — Google News RSS
+        ("דה מרקר",              "https://news.google.com/rss/search?q=site:themarker.com+when:1d&hl=he&gl=IL&ceid=IL:he"),
+        # גלובס — RSS feeds ייעודיים
+        ("גלובס — כלכלה",        "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=2"),
+        ("גלובס — שוק ההון",     "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=585"),
+        ("גלובס — נדל\"ן",        "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=607"),
+        ("גלובס — עסקים",        "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=594"),
         # וואלה RSS
         ("וואלה חדשות",          "https://rss.walla.co.il/feed/22"),
         ("וואלה כלכלה",          "https://rss.walla.co.il/feed/2"),

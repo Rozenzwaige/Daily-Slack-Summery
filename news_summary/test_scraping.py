@@ -125,11 +125,12 @@ tests = [
     ("שיחה מקומית RSS",       "rss",    "https://www.mekomit.co.il/feed/",                          None),
     ("N12 RSS",               "rss",    "https://www.n12.co.il/rss/",                               None),
     ("Al-Jazeera RSS",        "rss",    "https://www.aljazeera.com/xml/rss/all.xml",                None),
-    # הארץ ודה מרקר — RSS במקום scraping
-    ("הארץ RSS",               "rss",    "https://www.haaretz.co.il/cmlink/1.1885897",             None, False),
-    ("הארץ — חינוך RSS",       "rss",    "https://www.haaretz.co.il/cmlink/1.4318068",             None, False),
-    ("הארץ — כלכלה RSS",       "rss",    "https://www.haaretz.co.il/cmlink/1.1953796",             None, False),
-    ("דה מרקר RSS",             "rss",    "https://www.themarker.com/cmlink/1.4318069",             None, False),
+    ("הארץ — Google News",      "rss",    "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he", None, False),
+    ("דה מרקר — Google News",   "rss",    "https://news.google.com/rss/search?q=site:themarker.com+when:1d&hl=he&gl=IL&ceid=IL:he", None, False),
+    ("גלובס RSS — כלכלה",       "rss",    "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=2",   None, False),
+    ("גלובס RSS — שוק ההון",    "rss",    "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=585", None, False),
+    ("גלובס RSS — נדל\"ן",       "rss",    "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=607", None, False),
+    ("גלובס RSS — עסקים",       "rss",    "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=594", None, False),
     ("וואלה חדשות RSS",         "rss",    "https://rss.walla.co.il/feed/22",                        None, False),
     ("וואלה כלכלה RSS",         "rss",    "https://rss.walla.co.il/feed/2",                         None, False),
     # ynet topics — filter תוקן
