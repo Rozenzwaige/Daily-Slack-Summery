@@ -440,6 +440,14 @@ def collect_articles() -> list[dict]:
         ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
         ("Wafa",                 "https://english.wafa.ps/rss"),
         ("Ma'an News",           "https://www.maannews.com/rss/latest-news"),
+        # הארץ ודה מרקר — RSS עדיף על scraping כי האתרים JS-heavy
+        ("הארץ",                 "https://www.haaretz.co.il/cmlink/1.1885897"),
+        ("הארץ — חינוך",         "https://www.haaretz.co.il/cmlink/1.4318068"),
+        ("הארץ — כלכלה",         "https://www.haaretz.co.il/cmlink/1.1953796"),
+        ("דה מרקר",              "https://www.themarker.com/cmlink/1.4318069"),
+        # וואלה RSS
+        ("וואלה חדשות",          "https://rss.walla.co.il/feed/22"),
+        ("וואלה כלכלה",          "https://rss.walla.co.il/feed/2"),
     ]
     for name, url in reliable_rss:
         batch = fetch_rss(name, url)
@@ -447,29 +455,20 @@ def collect_articles() -> list[dict]:
         all_articles.extend(batch)
         time.sleep(0.3)
 
-    print("📰 Scraping Israeli news pages (general + welfare/society/education sections)...")
+    print("📰 Scraping Israeli news pages...")
     homepage_sources = [
-        # הארץ
-        ("הארץ — חדשות מקומי",  "https://www.haaretz.co.il/news/local",     "/article", False),
-        ("הארץ — חינוך ורווחה", "https://www.haaretz.co.il/news/education", "/article", True),
-        ("הארץ — כלכלה",        "https://www.haaretz.co.il/business",       "/article", True),
-        ("הארץ — סביבה",        "https://www.haaretz.co.il/nature",         "/article", True),
-        # ynet — topic pages (no_filter: כל הכתבות בעמוד כבר רלוונטיות)
-        ("ynet — רווחה",        "https://www.ynet.co.il/topics/%D7%A8%D7%95%D7%95%D7%97%D7%94", "/articles/", True),
-        ("ynet — חינוך",        "https://www.ynet.co.il/topics/%D7%97%D7%99%D7%A0%D7%95%D7%9A", "/articles/", True),
-        ("ynet — כלכלה",        "https://www.ynet.co.il/economy",           "/articles/", True),
-        # וואלה
-        ("וואלה — חברה ורווחה", "https://news.walla.co.il/category/90",     "/item/",     True),
-        ("וואלה — חינוך",       "https://news.walla.co.il/category/94",     "/item/",     True),
-        ("וואלה — מקומי",       "https://mekomi.walla.co.il/",              "/item/",     False),
+        # ynet — filter תוקן ל-/article/ (אמיתי)
+        ("ynet — רווחה",          "https://www.ynet.co.il/topics/%D7%A8%D7%95%D7%95%D7%97%D7%94", "/article/", True),
+        ("ynet — חינוך",          "https://www.ynet.co.il/topics/%D7%97%D7%99%D7%A0%D7%95%D7%9A", "/article/", True),
+        ("ynet — כלכלה",          "https://www.ynet.co.il/economy",           "/article/",  True),
         # ישראל היום
         ("ישראל היום — רווחה",    "https://www.israelhayom.co.il/news/welfare",    None, True),
         ("ישראל היום — חינוך",    "https://www.israelhayom.co.il/news/education",  None, True),
         ("ישראל היום — מוניציפלי","https://www.israelhayom.co.il/news/municipal",  None, False),
         ("ישראל היום — חדשות",    "https://www.israelhayom.co.il/israelnow",       None, False),
         # כאן וגל"צ
-        ("כאן חדשות",            "https://www.kan.org.il/",                 "/item/",     False),
-        ("גל\"צ",                 "https://www.glz.co.il/",                  None,         False),
+        ("כאן חדשות",             "https://www.kan.org.il/",                  "/item/",    False),
+        ("גל\"צ",                  "https://www.glz.co.il/",                   None,        False),
     ]
     for name, url, substr, nf in homepage_sources:
         batch = scrape_homepage(name, url, article_substr=substr, no_filter=nf)
@@ -477,15 +476,10 @@ def collect_articles() -> list[dict]:
         all_articles.extend(batch)
         time.sleep(0.5)
 
-    print("💰 Scraping economy pages (homepages — headlines are not paywalled)...")
+    print("💰 Scraping economy pages...")
     economy_sources = [
-        # גלובס — עמוד ראשי + מדור כלכלה (article links contain /news/article/)
-        ("גלובס",               "https://www.globes.co.il/",                    "/news/article/", True),
-        # כלכליסט — עמוד ראשי
-        ("כלכליסט",             "https://www.calcalist.co.il/",                 None,             True),
-        # דה מרקר — עמוד ראשי + צרכנות
-        ("דה מרקר",             "https://www.themarker.com/",                   "/article",       True),
-        ("דה מרקר — צרכנות",    "https://www.themarker.com/consumer",           "/article",       True),
+        # גלובס — filter תוקן ל-/news/article.aspx (אמיתי)
+        ("גלובס",               "https://www.globes.co.il/",   "/news/article.aspx", True),
     ]
     for name, url, substr, nf in economy_sources:
         batch = scrape_homepage(name, url, article_substr=substr, no_filter=nf)
