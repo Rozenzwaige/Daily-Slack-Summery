@@ -66,6 +66,7 @@ ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
 SLACK_BOT_TOKEN    = os.environ.get("SLACK_BOT_TOKEN", "")
 NEWS_INPUTS_CHANNEL = os.environ.get("NEWS_INPUTS_CHANNEL", "")
 HAARETZ_COOKIES    = os.environ.get("HAARETZ_COOKIES", "")
+GLOBES_COOKIES     = os.environ.get("GLOBES_COOKIES", "")
 
 
 def _parse_cookies(cookie_str: str) -> dict:
@@ -82,8 +83,10 @@ def _parse_cookies(cookie_str: str) -> dict:
 COOKIES_BY_DOMAIN: dict[str, dict] = {}
 if HAARETZ_COOKIES:
     _htz = _parse_cookies(HAARETZ_COOKIES)
-    COOKIES_BY_DOMAIN["haaretz.co.il"]  = _htz
-    COOKIES_BY_DOMAIN["themarker.com"]  = _htz   # דה מרקר — אותו מנוי
+    COOKIES_BY_DOMAIN["haaretz.co.il"] = _htz
+    COOKIES_BY_DOMAIN["themarker.com"] = _htz  # דה מרקר — אותו מנוי
+if GLOBES_COOKIES:
+    COOKIES_BY_DOMAIN["globes.co.il"] = _parse_cookies(GLOBES_COOKIES)
 
 # ─── Topic keywords ───────────────────────────────────────────────────────────
 

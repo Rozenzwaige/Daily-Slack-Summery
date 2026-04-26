@@ -81,4 +81,5 @@ jobs:
           SLACK_BOT_TOKEN:      ${{ secrets.SLACK_BOT_TOKEN }}
           NEWS_INPUTS_CHANNEL:  ${{ secrets.NEWS_INPUTS_CHANNEL }}
           HAARETZ_COOKIES:      ${{ secrets.HAARETZ_COOKIES }}
+          GLOBES_COOKIES:       ${{ secrets.GLOBES_COOKIES }}
         run: python news_summary/main.py
