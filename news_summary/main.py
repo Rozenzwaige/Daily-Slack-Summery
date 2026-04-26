@@ -80,6 +80,7 @@ KEYWORDS_HE = [
     "הצתה", "כריתת עצים", "ונדליזם", "פשע שנאה",
     "סנקציות על מתנחלים", "עצור מתנחל", "מתנחלים חמושים",
     "גבעות תנועה", "חוות מתנחלים", "מאחז",
+    "טיהור אתני", "טרור יהודי", "טרור המתנחלים",
     "שלום", "הסכם", "הפסקת אש", "משא ומתן", "שחרור חטופים",
     "חטופ", "ערבי", "בדואי", "מגזר ערבי", "דו-קיום",
     "חמאס", "ג'יהאד", "חיזבאלה",
@@ -118,6 +119,7 @@ KEYWORDS_EN = [
     "Abbas", "Palestinian Authority",
     "settler violence", "settler attack", "pogrom", "arson", "price tag",
     "settler sanctions", "demolition", "outpost", "settler rampage",
+    "ethnic cleansing", "Jewish terrorism", "settler terrorism",
     "ceasefire", "peace", "hostage", "negotiation", "release",
     "Hamas", "Hezbollah", "airstrike", "bombing", "civilian", "casualt",
     # חברה ורווחה
