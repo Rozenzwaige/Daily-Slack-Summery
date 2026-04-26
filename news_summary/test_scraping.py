@@ -123,7 +123,7 @@ tests = [
     # RSS
     ("ynet RSS",              "rss",    "https://www.ynet.co.il/Integration/StoryRss2.xml",        None),
     ("שיחה מקומית RSS",       "rss",    "https://www.mekomit.co.il/feed/",                          None),
-    ("N12 RSS",               "rss",    "https://www.n12.co.il/rss/",                               None),
+    ("N12 / מאקו",            "scrape", "https://www.n12.co.il/",                              "Article-", False),
     ("Al-Jazeera RSS",        "rss",    "https://www.aljazeera.com/xml/rss/all.xml",                None),
     ("הארץ — Google News",      "rss",    "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he", None, False),
     ("דה מרקר — Google News",   "rss",    "https://news.google.com/rss/search?q=site:themarker.com+when:1d&hl=he&gl=IL&ceid=IL:he", None, False),

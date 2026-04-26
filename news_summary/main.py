@@ -434,7 +434,8 @@ def collect_articles() -> list[dict]:
     reliable_rss = [
         ("ynet",                 "https://www.ynet.co.il/Integration/StoryRss2.xml"),
         ("שיחה מקומית",          "https://www.mekomit.co.il/feed/"),
-        ("N12",                  "https://www.n12.co.il/rss/"),
+        # N12 RSS is blocked by Radware — using Google News instead (see reliable_rss below)
+
         ("Guardian Middle East", "https://www.theguardian.com/world/middleeast/rss"),
         ("NYT Middle East",      "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
         ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
@@ -470,9 +471,10 @@ def collect_articles() -> list[dict]:
         ("ישראל היום — חינוך",    "https://www.israelhayom.co.il/news/education",  None, True),
         ("ישראל היום — מוניציפלי","https://www.israelhayom.co.il/news/municipal",  None, False),
         ("ישראל היום — חדשות",    "https://www.israelhayom.co.il/israelnow",       None, False),
-        # כאן וגל"צ
+        # כאן, גל"צ, N12/מאקו (N12 RSS חסום — מגרדים ישירות)
         ("כאן חדשות",             "https://www.kan.org.il/",                  "/item/",    False),
         ("גל\"צ",                  "https://www.glz.co.il/",                   None,        False),
+        ("N12 / מאקו",            "https://www.n12.co.il/",                   "Article-",  False),
     ]
     for name, url, substr, nf in homepage_sources:
         batch = scrape_homepage(name, url, article_substr=substr, no_filter=nf)
