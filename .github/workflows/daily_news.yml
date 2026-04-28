@@ -2,9 +2,9 @@ name: Daily News Summary
 
 on:
   schedule:
-    # 04:00 UTC = 07:00 IDT (Israel Daylight Time, UTC+3)
+    # 03:00 UTC = 06:00 IDT (Israel Daylight Time, UTC+3)
     # Sunday–Thursday only. GitHub cron may arrive up to ~30 min late.
-    - cron: "0 4 * * 0,1,2,3,4"
+    - cron: "0 3 * * 0,1,2,3,4"
 
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
