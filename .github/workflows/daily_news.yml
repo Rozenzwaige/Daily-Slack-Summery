@@ -83,3 +83,11 @@ jobs:
           HAARETZ_COOKIES:      ${{ secrets.HAARETZ_COOKIES }}
           GLOBES_COOKIES:       ${{ secrets.GLOBES_COOKIES }}
         run: python news_summary/main.py
+
+      - name: Upload articles debug artifact
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: articles-debug-${{ github.run_id }}
+          path: news_summary/articles_debug.json
+          retention-days: 7

@@ -712,6 +712,18 @@ def main():
         print("[INFO] No new articles — skipping Slack message.")
         return
 
+    # ── Save all articles to a debug file (uploaded as GitHub Actions artifact) ──
+    debug_path = Path(__file__).parent / "articles_debug.json"
+    debug_data = {
+        "date": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "total": len(articles),
+        "articles": articles,
+    }
+    debug_path.write_text(
+        json.dumps(debug_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"📝 Saved {len(articles)} articles to {debug_path.name}")
+
     print("\n🤖 Summarising with Claude...")
     summary = summarise(articles)
 
