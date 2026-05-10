@@ -6,9 +6,9 @@ CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "calendar_aggregator/cre
 TAB_KNESSET    = "כנסת"
 TAB_GOVERNMENT = "ממשלה"
 TAB_COURTS     = "בתי משפט"
-TAB_HOLIDAYS   = "חגים"
+TAB_WIKIPEDIA  = "ויקיפדיה"
 
-ALL_TABS = [TAB_KNESSET, TAB_GOVERNMENT, TAB_COURTS, TAB_HOLIDAYS]
+ALL_TABS = [TAB_KNESSET, TAB_GOVERNMENT, TAB_COURTS, TAB_WIKIPEDIA]
 HEADERS  = ["תאריך", "שעה", "אירוע", "תיאור", "קישור"]
 
 DAYS_AHEAD = 7

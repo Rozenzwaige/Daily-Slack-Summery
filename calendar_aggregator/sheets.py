@@ -32,7 +32,14 @@ def _ensure_tabs(sh):
 
 
 def update_tab(tab_name: str, rows: list[list]):
-    """Clear a tab and write fresh rows (header + data), sorted by date."""
+    """Clear a tab and write fresh rows (header + data), sorted by date.
+
+    If rows is empty the tab is left untouched so that a temporary scraper
+    failure doesn't wipe out the previous day's data.
+    """
+    if not rows:
+        print(f"[sheets] '{tab_name}': 0 rows — keeping existing data")
+        return
     sh = _get_sheet()
     _ensure_tabs(sh)
     ws = sh.worksheet(tab_name)

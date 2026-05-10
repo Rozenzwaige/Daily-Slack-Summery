@@ -23,8 +23,16 @@ except ImportError:
 
 _BASE = "https://knesset.gov.il/Odata/ParliamentInfo.svc"
 _REQ_HEADERS = {
-    "Accept": "application/json;odata=verbose",
-    "User-Agent": "Mozilla/5.0 (compatible; CalendarBot/1.0)",
+    # Some WCF OData endpoints reject requests without a browser-like User-Agent
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8",
+    "Referer": "https://main.knesset.gov.il/Activity/committees/Pages/AllCommitteesAgenda.aspx",
+    "X-Requested-With": "XMLHttpRequest",
 }
 
 
@@ -65,6 +73,10 @@ def _fetch(table: str, extra_params: dict) -> list[dict]:
     try:
         resp = requests.get(url, params=params, headers=_REQ_HEADERS, timeout=30)
         resp.raise_for_status()
+        print(f"[knesset] {table}: HTTP {resp.status_code}, {len(resp.content)} bytes")
+        if not resp.content:
+            print(f"[knesset] {table}: empty body — server may geo-block non-Israeli IPs")
+            return items
         body = resp.json()
         # OData v3: {"d": {"results": [...]}}
         # OData v4: {"value": [...]}
@@ -73,7 +85,7 @@ def _fetch(table: str, extra_params: dict) -> list[dict]:
             or body.get("value")
             or []
         )
-        print(f"[knesset] {table}: HTTP {resp.status_code}, {len(items)} items")
+        print(f"[knesset] {table}: {len(items)} items parsed")
     except Exception as e:
         print(f"[knesset] {table} error: {e}")
     return items
