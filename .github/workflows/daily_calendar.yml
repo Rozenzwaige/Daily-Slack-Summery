@@ -1,0 +1,52 @@
+name: Daily Calendar Update
+
+on:
+  schedule:
+    # 03:00 UTC = 06:00 IDT (UTC+3).  Runs every day.
+    - cron: "0 3 * * *"
+
+  # Allow manual trigger from the Actions UI or via `gh workflow run`
+  workflow_dispatch:
+    inputs:
+      tabs:
+        description: "Space-separated tabs to update (leave empty for all)"
+        required: false
+        default: ""
+
+jobs:
+  update-calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: calendar_aggregator/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r calendar_aggregator/requirements.txt
+
+      - name: Write Google credentials
+        # Secret CALENDAR_GOOGLE_CREDENTIALS must contain the service-account JSON,
+        # base64-encoded:  base64 -w0 credentials.json
+        run: |
+          echo "${{ secrets.CALENDAR_GOOGLE_CREDENTIALS }}" | base64 -d \
+            > calendar_aggregator/credentials.json
+
+      - name: Run calendar aggregator
+        env:
+          CALENDAR_SHEET_ID:        ${{ secrets.CALENDAR_SHEET_ID }}
+          GOOGLE_CREDENTIALS_FILE:  calendar_aggregator/credentials.json
+        run: |
+          TABS="${{ github.event.inputs.tabs }}"
+          python calendar_aggregator/main.py $TABS
+
+      - name: Remove credentials file
+        if: always()
+        run: rm -f calendar_aggregator/credentials.json
