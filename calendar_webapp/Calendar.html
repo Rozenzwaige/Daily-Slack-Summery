@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>לוח אירועים — רוזה</title>
+<style>
+/* ── Design tokens — identical to RozaNews ───────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:      #15202b;
+  --bg2:     #1e2a36;
+  --bg3:     #253341;
+  --border:  #3a2a2a;
+  --text:    #e7e9ea;
+  --muted:   #8b98a5;
+  --accent:  #cc2318;
+  --blue:    #1d9bf0;
+  --green:   #00ba7c;
+  --red:     #f4212e;
+  --amber:   #f59e0b;
+  --purple:  #a855f7;
+  --orange:  #f97316;
+
+  /* per-source accent */
+  --c-knesset:   #1d9bf0;
+  --c-gov:       #f59e0b;
+  --c-courts:    #cc2318;
+  --c-wiki:      #00ba7c;
+  --c-wch:       #a855f7;
+  --c-socialist: #f97316;
+}
+
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  direction: rtl;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Loading screen ──────────────────────────────────────────────────────── */
+#loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 14px;
+  color: var(--muted);
+  font-size: .88rem;
+}
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 14px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.hdr-title { font-size: .95rem; color: var(--accent); font-weight: 700; flex: 1; }
+
+/* View mode pills */
+.view-pills { display: flex; gap: 4px; }
+.view-pill {
+  padding: 3px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: .78rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.view-pill:hover  { border-color: var(--accent); color: var(--accent); }
+.view-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* Navigation arrows (shown only in 1/2/3-day view) */
+.nav-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  width: 30px; height: 30px;
+  cursor: pointer;
+  font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .12s;
+  flex-shrink: 0;
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-btn[hidden] { display: none; }
+
+.hdr-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: .74rem;
+  font-family: inherit;
+  transition: all .12s;
+  flex-shrink: 0;
+}
+.hdr-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Source filter bar ───────────────────────────────────────────────────── */
+#src-bar {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.src-pill {
+  padding: 3px 11px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: .78rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+  white-space: nowrap;
+  user-select: none;
+}
+.src-pill:hover { opacity: .82; }
+/* active states keyed by data-src */
+.src-pill[data-src="כנסת"].active          { background: var(--c-knesset);   border-color: var(--c-knesset);   color: #fff; font-weight: 600; }
+.src-pill[data-src="ממשלה"].active         { background: var(--c-gov);        border-color: var(--c-gov);        color: #fff; font-weight: 600; }
+.src-pill[data-src="בתי משפט"].active      { background: var(--c-courts);     border-color: var(--c-courts);     color: #fff; font-weight: 600; }
+.src-pill[data-src="ויקיפדיה"].active      { background: var(--c-wiki);       border-color: var(--c-wiki);       color: #fff; font-weight: 600; }
+.src-pill[data-src="WCH"].active           { background: var(--c-wch);        border-color: var(--c-wch);        color: #fff; font-weight: 600; }
+.src-pill[data-src="לוח השנה הסוציאליסטי"].active { background: var(--c-socialist); border-color: var(--c-socialist); color: #fff; font-weight: 600; }
+
+/* ── Error bar ───────────────────────────────────────────────────────────── */
+#err-bar {
+  display: none;
+  background: rgba(244,33,46,.08);
+  border-bottom: 1px solid var(--red);
+  color: var(--red);
+  font-size: .8rem;
+  padding: 7px 14px;
+  flex-shrink: 0;
+}
+
+/* ── Calendar area ───────────────────────────────────────────────────────── */
+#cal-area {
+  flex: 1;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 1px;
+  background: var(--border);
+  min-height: 0;
+}
+#cal-area::-webkit-scrollbar { height: 4px; }
+#cal-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Day column ──────────────────────────────────────────────────────────── */
+.day-col {
+  min-width: 190px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.day-col.today { background: rgba(29,155,240,.035); }
+
+.day-col-hdr {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 7px 10px 6px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.day-name { font-size: .84rem; font-weight: 700; }
+.day-date { font-size: .73rem; color: var(--muted); }
+.day-col.today .day-name,
+.day-col.today .day-date { color: var(--accent); }
+
+/* ── All-day section (holidays / observances) ────────────────────────────── */
+.allday-section {
+  flex-shrink: 0;
+  max-height: 138px;
+  overflow-y: auto;
+  padding: 5px 6px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-bottom: 1px solid var(--border);
+}
+.allday-section:empty { padding: 0; border-bottom: none; max-height: 0; }
+.allday-section::-webkit-scrollbar { width: 2px; }
+.allday-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
+
+/* ── Timed section ───────────────────────────────────────────────────────── */
+.timed-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+.timed-section::-webkit-scrollbar { width: 2px; }
+.timed-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
+.empty-day {
+  color: var(--muted);
+  font-size: .75rem;
+  text-align: center;
+  padding: 18px 8px;
+  opacity: .6;
+}
+
+/* ── Event card ──────────────────────────────────────────────────────────── */
+.event-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-top-width: 2px;
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: .79rem;
+  line-height: 1.35;
+  transition: border-color .12s;
+}
+/* top border accent by source */
+.event-card[data-src="כנסת"]          { border-top-color: var(--c-knesset); }
+.event-card[data-src="ממשלה"]         { border-top-color: var(--c-gov); }
+.event-card[data-src="בתי משפט"]      { border-top-color: var(--c-courts); }
+.event-card[data-src="ויקיפדיה"]      { border-top-color: var(--c-wiki); }
+.event-card[data-src="WCH"]           { border-top-color: var(--c-wch); }
+.event-card[data-src="לוח השנה הסוציאליסטי"] { border-top-color: var(--c-socialist); }
+
+.event-card:hover { border-color: var(--muted); border-top-width: 2px; }
+
+.ev-src {
+  display: inline-block;
+  font-size: .61rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-bottom: 3px;
+}
+.ev-src[data-src="כנסת"]          { background: rgba(29,155,240,.14);  color: var(--c-knesset); }
+.ev-src[data-src="ממשלה"]         { background: rgba(245,158,11,.14); color: var(--c-gov); }
+.ev-src[data-src="בתי משפט"]      { background: rgba(204,35,24,.14);  color: var(--c-courts); }
+.ev-src[data-src="ויקיפדיה"]      { background: rgba(0,186,124,.14);  color: var(--c-wiki); }
+.ev-src[data-src="WCH"]           { background: rgba(168,85,247,.14); color: var(--c-wch); }
+.ev-src[data-src="לוח השנה הסוציאליסטי"] { background: rgba(249,115,22,.14); color: var(--c-socialist); }
+
+.ev-time {
+  font-size: .7rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ev-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.ev-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.ev-title a:hover { color: var(--accent); text-decoration: underline; }
+.ev-desc {
+  font-size: .72rem;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Scrollbar global ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="loading-screen"><div class="spinner"></div><span>טוען אירועים...</span></div>
+
+<div id="app" style="display:none; flex-direction:column; height:100vh; overflow:hidden;">
+
+  <!-- Header -->
+  <header>
+    <span class="hdr-title">📅 לוח אירועים</span>
+    <button class="nav-btn" id="btn-prev" hidden onclick="navigate(-1)" title="קודם">›</button>
+    <div class="view-pills">
+      <button class="view-pill"        data-days="1" onclick="setView(1)">יום</button>
+      <button class="view-pill"        data-days="2" onclick="setView(2)">יומיים</button>
+      <button class="view-pill"        data-days="3" onclick="setView(3)">3 ימים</button>
+      <button class="view-pill active" data-days="7" onclick="setView(7)">שבוע</button>
+    </div>
+    <button class="nav-btn" id="btn-next" hidden onclick="navigate(1)" title="הבא">‹</button>
+    <button class="hdr-btn" onclick="location.reload()">⟳ רענן</button>
+  </header>
+
+  <!-- Source filter bar -->
+  <div id="src-bar">
+    <button class="src-pill active" data-src="כנסת"                   onclick="toggleSrc(this)">🏛 כנסת</button>
+    <button class="src-pill active" data-src="ממשלה"                  onclick="toggleSrc(this)">🏛 ממשלה</button>
+    <button class="src-pill active" data-src="בתי משפט"               onclick="toggleSrc(this)">⚖️ בתי משפט</button>
+    <button class="src-pill active" data-src="ויקיפדיה"               onclick="toggleSrc(this)">📖 ויקיפדיה</button>
+    <button class="src-pill active" data-src="WCH"                    onclick="toggleSrc(this)">🌍 WCH</button>
+    <button class="src-pill active" data-src="לוח השנה הסוציאליסטי"  onclick="toggleSrc(this)">✊ סוציאליסטי</button>
+  </div>
+
+  <div id="err-bar"></div>
+
+  <!-- Calendar columns injected here -->
+  <div id="cal-area"></div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+var _data       = {};     // raw: { "DD/MM/YYYY": { allDay, timed } }
+var _daysView   = 7;
+var _offset     = 0;      // days from today for the start of the window
+var _activeSrcs = new Set([
+  'כנסת','ממשלה','בתי משפט','ויקיפדיה','WCH','לוח השנה הסוציאליסטי'
+]);
+
+var HE_DAYS  = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+var FETCH_DAYS = 21; // load 3 weeks so navigation has room
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+(function boot() {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      _data = data;
+      document.getElementById('loading-screen').style.display = 'none';
+      var app = document.getElementById('app');
+      app.style.display = 'flex';
+      render();
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('loading-screen').innerHTML =
+        '<div style="color:var(--red);padding:20px;text-align:center">⚠ שגיאה בטעינה:<br>' +
+        esc(err.message || String(err)) + '</div>';
+    })
+    .getCalendarData(todayStr(), FETCH_DAYS);
+})();
+
+// ── View mode & navigation ─────────────────────────────────────────────────────
+function setView(days) {
+  _daysView = days;
+  _offset   = 0;
+  document.querySelectorAll('.view-pill').forEach(function(p) {
+    p.classList.toggle('active', +p.dataset.days === days);
+  });
+  updateNavBtns();
+  render();
+}
+
+function navigate(dir) {
+  _offset += dir * _daysView;
+  if (_offset < 0) _offset = 0;
+  if (_offset + _daysView > FETCH_DAYS) _offset = FETCH_DAYS - _daysView;
+  updateNavBtns();
+  render();
+}
+
+function updateNavBtns() {
+  var showNav = _daysView < 7;
+  var prev = document.getElementById('btn-prev');
+  var next = document.getElementById('btn-next');
+  prev.hidden = !showNav || _offset <= 0;
+  next.hidden = !showNav || _offset + _daysView >= FETCH_DAYS;
+}
+
+function toggleSrc(btn) {
+  var src = btn.dataset.src;
+  if (_activeSrcs.has(src)) { _activeSrcs.delete(src); btn.classList.remove('active'); }
+  else                       { _activeSrcs.add(src);    btn.classList.add('active'); }
+  render();
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function render() {
+  var area  = document.getElementById('cal-area');
+  area.innerHTML = '';
+  var today = new Date(); today.setHours(0,0,0,0);
+
+  for (var i = 0; i < _daysView; i++) {
+    var d = new Date(today); d.setDate(today.getDate() + _offset + i);
+    var ds = fmtDate(d);
+    var raw = _data[ds] || { allDay: [], timed: [] };
+
+    var allDay = raw.allDay.filter(function(e) { return _activeSrcs.has(e.source); });
+    var timed  = raw.timed.filter(function(e)  { return _activeSrcs.has(e.source); });
+
+    area.appendChild(buildDayCol(d, ds, _offset + i === 0, allDay, timed));
+  }
+}
+
+// ── Build one day column ───────────────────────────────────────────────────────
+function buildDayCol(d, ds, isToday, allDay, timed) {
+  var col = el('div', 'day-col' + (isToday ? ' today' : ''));
+
+  // Header
+  var hdr = el('div', 'day-col-hdr');
+  hdr.innerHTML =
+    '<span class="day-name">' + HE_DAYS[d.getDay()] + '</span>' +
+    '<span class="day-date">' + p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '</span>';
+  col.appendChild(hdr);
+
+  // All-day section (top, holidays & observances)
+  if (allDay.length) {
+    var adSec = el('div', 'allday-section');
+    allDay.forEach(function(ev) { adSec.appendChild(buildAlldayCard(ev)); });
+    col.appendChild(adSec);
+  }
+
+  // Timed section
+  var timedSec = el('div', 'timed-section');
+  if (timed.length) {
+    timed.forEach(function(ev) { timedSec.appendChild(buildTimedCard(ev)); });
+  } else if (!allDay.length) {
+    timedSec.innerHTML = '<div class="empty-day">אין אירועים</div>';
+  }
+  col.appendChild(timedSec);
+
+  return col;
+}
+
+// All-day card: source tag + title (clickable link if link exists), no media shown
+function buildAlldayCard(ev) {
+  var card = el('div', 'event-card');
+  card.dataset.src = ev.source;
+
+  var tag = '<span class="ev-src" data-src="' + esc(ev.source) + '">' +
+            esc(srcLabel(ev.source)) + '</span>';
+
+  var titleContent = ev.link
+    ? '<a href="' + esc(ev.link) + '" target="_blank" rel="noopener">' + esc(ev.title) + '</a>'
+    : esc(ev.title);
+
+  card.innerHTML = tag + '<div class="ev-title">' + titleContent + '</div>';
+  return card;
+}
+
+// Timed card: source tag + time + title (link) + description
+function buildTimedCard(ev) {
+  var card = el('div', 'event-card');
+  card.dataset.src = ev.source;
+
+  var tag = '<span class="ev-src" data-src="' + esc(ev.source) + '">' +
+            esc(srcLabel(ev.source)) + '</span>';
+
+  var timeHtml = ev.time
+    ? '<div class="ev-time"><span>🕐</span>' + esc(ev.time) + '</div>'
+    : '';
+
+  var titleContent = ev.link
+    ? '<a href="' + esc(ev.link) + '" target="_blank" rel="noopener">' + esc(ev.title) + '</a>'
+    : esc(ev.title);
+  var titleHtml = '<div class="ev-title">' + titleContent + '</div>';
+
+  var descHtml = ev.desc
+    ? '<div class="ev-desc">' + esc(ev.desc) + '</div>'
+    : '';
+
+  card.innerHTML = tag + timeHtml + titleHtml + descHtml;
+  return card;
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+function todayStr() {
+  var d = new Date();
+  return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+function fmtDate(d) {
+  return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+function p2(n)  { return n < 10 ? '0' + n : String(n); }
+function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function srcLabel(src) {
+  return src === 'לוח השנה הסוציאליסטי' ? 'סוציאליסטי' : src;
+}
+</script>
+</body>
+</html>
