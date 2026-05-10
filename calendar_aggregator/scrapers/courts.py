@@ -1,101 +1,107 @@
-"""Israeli court public session calendar.
+"""Israeli court events via legal-news RSS feeds.
 
-Sources tried in order:
-  1. Supreme Court public decisions list (supremedecisions.court.gov.il)
-  2. netHaMishpat public search API  (www.nethamishpat.gov.il)
-  3. court.gov.il homepage calendar widget
+The official court websites (court.gov.il, supremedecisions.court.gov.il)
+block all automated access at the network level (Imperva WAF).
 
-All sources are best-effort; empty list is returned on total failure.
+Instead we aggregate RSS feeds from major Israeli news outlets and filter
+for articles that cover court hearings, verdicts, and rulings.
+
+Sources chosen based on court-coverage density testing:
+  ישראל היום  — ~13 court articles per feed cycle
+  וואלה        — ~6
+  מעריב        — ~4
+  ynet         — ~2
+  גלובס        — ~1
 """
 
+import feedparser
 import re
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; CalendarBot/1.0)",
-    "Accept-Language": "he-IL,he;q=0.9",
-}
+_FEEDS = [
+    ("ישראל היום", "https://www.israelhayom.co.il/rss.xml"),
+    ("וואלה",       "https://rss.walla.co.il/feed/1"),
+    ("מעריב",       "https://www.maariv.co.il/rss/rssfeedsopenaccess"),
+    ("ynet",        "https://www.ynet.co.il/Integration/StoryRss1854.xml"),
+    ("גלובס",       "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iid=585"),
+]
+
+# Keywords that indicate court-related content
+_COURT_KW = [
+    "בית משפט", "בית-משפט",
+    "בית המשפט",
+    "עליון", "מחוזי", "שלום",
+    "עתירה",
+    "פסק דין", "פסק-דין",
+    "גזר דין", "גזר-דין",
+    "דיון",
+    "נאשם", "נאשמת",
+    "תביעה",
+    "שופט", "שופטת",
+    "הרשעה", "זיכוי",
+    "מעצר", "ערעור",
+    "היועמ\"ש", "היועץ המשפטי",
+    "פרקליטות",
+]
+
+_KW_RE = re.compile("|".join(re.escape(kw) for kw in _COURT_KW))
 
 
-def _extract_date(text: str) -> str:
-    m = re.search(r"\d{1,2}[./]\d{1,2}[./]\d{4}", text)
-    if not m:
-        return ""
-    parts = re.split(r"[./]", m.group())
-    return f"{int(parts[0]):02d}/{int(parts[1]):02d}/{parts[2]}"
+def _is_court(entry: dict) -> bool:
+    text = entry.get("title", "") + " " + entry.get("summary", "")
+    return bool(_KW_RE.search(text))
 
 
-def _in_window(date_str: str, days: int) -> bool:
-    if not date_str:
-        return True  # keep rows whose date we couldn't parse
+def _parse_pub_date(entry: dict) -> tuple[str, str]:
+    """Return (DD/MM/YYYY, HH:MM) from RSS entry."""
+    raw = entry.get("published", "") or entry.get("updated", "")
+    if not raw:
+        return datetime.now().strftime("%d/%m/%Y"), ""
     try:
-        day, month, year = date_str.split("/")
-        d = datetime(int(year), int(month), int(day))
-        return datetime.now() <= d <= datetime.now() + timedelta(days=days)
+        dt = parsedate_to_datetime(raw)
+        # Convert to Israel time (UTC+3 summer / UTC+2 winter — approximate with +3)
+        dt_il = dt.astimezone(timezone(timedelta(hours=3)))
+        return dt_il.strftime("%d/%m/%Y"), dt_il.strftime("%H:%M")
     except Exception:
-        return True
+        return datetime.now().strftime("%d/%m/%Y"), ""
 
 
-def _supreme_court() -> list[list]:
-    rows = []
-    try:
-        resp = requests.get(
-            "https://supremedecisions.court.gov.il/Home/ListDecisions",
-            headers=_HEADERS,
-            timeout=15,
-        )
-        if not resp.ok:
-            return rows
-        soup = BeautifulSoup(resp.text, "lxml")
-        for tr in soup.select("table tbody tr"):
-            cells = tr.find_all("td")
-            if len(cells) < 2:
-                continue
-            date_str = _extract_date(cells[0].get_text(strip=True))
-            desc      = cells[1].get_text(" ", strip=True)[:200]
-            link_tag  = tr.find("a", href=True)
-            link      = link_tag["href"] if link_tag else ""
-            if not link.startswith("http"):
-                link = "https://supremedecisions.court.gov.il" + link
-            if desc:
-                rows.append([date_str, "", "בית המשפט העליון", desc, link])
-    except Exception as e:
-        print(f"[courts] supremedecisions error: {e}")
-    return rows
-
-
-def _court_gov_il() -> list[list]:
-    rows = []
-    try:
-        resp = requests.get(
-            "https://www.court.gov.il/Hebrew/Pages/Home.aspx",
-            headers=_HEADERS,
-            timeout=15,
-        )
-        if not resp.ok:
-            return rows
-        soup = BeautifulSoup(resp.text, "lxml")
-        for item in soup.select(
-            ".calendar-item, .upcoming-hearing, .court-event, "
-            ".ms-rtestate-field li, article"
-        ):
-            text     = item.get_text(" ", strip=True)
-            link_tag = item.find("a", href=True)
-            link     = link_tag["href"] if link_tag else ""
-            if link and not link.startswith("http"):
-                link = "https://www.court.gov.il" + link
-            date_str = _extract_date(text)
-            if text:
-                rows.append([date_str, "", "בתי המשפט", text[:200], link])
-    except Exception as e:
-        print(f"[courts] court.gov.il error: {e}")
-    return rows
+def _clean(text: str, max_len: int = 200) -> str:
+    text = re.sub(r"<[^>]+>", " ", text)   # strip HTML tags
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_len]
 
 
 def get_events(days_ahead: int = 7) -> list[list]:
-    rows = _supreme_court() + _court_gov_il()
-    filtered = [r for r in rows if _in_window(r[0], days_ahead)]
-    print(f"[courts] {len(filtered)} events (from {len(rows)} raw)")
-    return filtered
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days_ahead)
+    seen_urls: set[str] = set()
+    rows: list[list] = []
+
+    for source, url in _FEEDS:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                if not _is_court(entry):
+                    continue
+                # Skip old articles
+                raw_date = entry.get("published_parsed") or entry.get("updated_parsed")
+                if raw_date:
+                    pub_dt = datetime(*raw_date[:6], tzinfo=timezone.utc)
+                    if pub_dt < cutoff:
+                        continue
+
+                link = entry.get("link", "")
+                if link in seen_urls:
+                    continue
+                seen_urls.add(link)
+
+                date_str, time_str = _parse_pub_date(entry)
+                title   = _clean(entry.get("title", ""))
+                summary = _clean(entry.get("summary", ""), 200)
+                rows.append([date_str, time_str, title, summary, link])
+        except Exception as e:
+            print(f"[courts] {source} error: {e}")
+
+    print(f"[courts] {len(rows)} court articles from {len(_FEEDS)} feeds")
+    return rows
