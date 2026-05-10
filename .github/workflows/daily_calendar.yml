@@ -43,6 +43,7 @@ jobs:
         env:
           CALENDAR_SHEET_ID:        ${{ secrets.CALENDAR_SHEET_ID }}
           GOOGLE_CREDENTIALS_FILE:  calendar_aggregator/credentials.json
+          ANTHROPIC_API_KEY:        ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           TABS="${{ github.event.inputs.tabs }}"
           python calendar_aggregator/main.py $TABS
