@@ -204,18 +204,29 @@ function normTime(v) {
 
 function p2(n) { return n < 10 ? '0' + n : String(n); }
 
+// Translate English → Hebrew via Google Translate (unofficial endpoint, no key needed).
+// Results are cached in GAS script cache for 24 hours to avoid repeated calls.
 function translateCached(text) {
   if (!text) return '';
   var cache = CacheService.getScriptCache();
   var key   = 'wch_' + text.slice(0, 80).replace(/\W/g, '_');
   var hit   = cache.get(key);
   if (hit) return hit;
+
   try {
-    var tr = LanguageApp.translate(text, 'en', 'iw');
-    cache.put(key, tr, 86400);
-    return tr;
+    var url  = 'https://translate.googleapis.com/translate_a/single'
+             + '?client=gtx&sl=en&tl=iw&dt=t&q='
+             + encodeURIComponent(text);
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    // Response: [ [ ["translated","original",...], ... ], null, "en" ]
+    var json = JSON.parse(resp.getContentText());
+    var tr   = json[0].map(function(seg) { return seg[0]; }).join('');
+    if (tr) {
+      cache.put(key, tr, 86400);
+      return tr;
+    }
   } catch (e) {
-    Logger.log('WCH translate failed: ' + text + ' — ' + e);
-    return text;
+    Logger.log('WCH translate failed for: ' + text.slice(0,60) + ' — ' + e);
   }
+  return text;   // fallback: original English
 }
