@@ -1,10 +1,11 @@
-// ── Tab names — must match exactly the sheet tab names ───────────────────────
+// ── Tab names ─────────────────────────────────────────────────────────────────
 var TAB_KNESSET   = 'כנסת';
 var TAB_GOV       = 'ממשלה';
 var TAB_COURTS    = 'בתי משפט';
 var TAB_WIKI      = 'ויקיפדיה';
 var TAB_WCH       = 'WCH';
 var TAB_SOCIALIST = 'לוח השנה הסוציאליסטי';
+var TAB_PERSONAL  = 'אירועים';           // personal events added via the webapp
 
 // ── Serve the web app ─────────────────────────────────────────────────────────
 function doGet() {
@@ -16,13 +17,11 @@ function doGet() {
 
 // ── Main data function ────────────────────────────────────────────────────────
 // Returns { "DD/MM/YYYY": { allDay: [...], timed: [...] } }
-// Each allDay item:  { source, title, desc, link }
-// Each timed item:   { source, time, title, desc, link }
+// allDay item: { source, title, desc, link }
+// timed item:  { source, time, title, desc, link }
 function getCalendarData(startDateStr, nDays) {
   var ss  = SpreadsheetApp.getActiveSpreadsheet();
   var out = {};
-
-  // Build the set of date strings we care about
   var dates   = buildDateStrings(startDateStr, nDays);
   var dateSet = Object.create(null);
   dates.forEach(function(d) {
@@ -42,7 +41,7 @@ function getCalendarData(startDateStr, nDays) {
       if (!title) return;
       out[d].timed.push({
         source: tab,
-        time:   String(row[1]).trim(),
+        time:   normTime(row[1]),
         title:  title,
         desc:   String(row[3]).trim(),
         link:   String(row[4]).trim()
@@ -69,8 +68,8 @@ function getCalendarData(startDateStr, nDays) {
     });
   });
 
-  // ── All-day: WCH (English, 4 columns)
-  // Columns: A=date  B=title(EN)  C=body text(EN)  D=media link
+  // ── All-day: WCH (English titles translated, 4 columns)
+  // Columns: A=date  B=title(EN)  C=body(EN)  D=media link
   var wchWs = ss.getSheetByName(TAB_WCH);
   if (wchWs) {
     wchWs.getDataRange().getValues().slice(1).forEach(function(row) {
@@ -82,9 +81,32 @@ function getCalendarData(startDateStr, nDays) {
         source:  TAB_WCH,
         title:   translateCached(titleEn),
         titleEn: titleEn,
-        desc:    '',              // body text not shown in card per spec
+        desc:    '',
         link:    String(row[3]).trim()
       });
+    });
+  }
+
+  // ── Personal events (אירועים)
+  // Columns: A=date  B=time  C=title  D=description  E=link
+  // Events without a time go to allDay; events with a time go to timed
+  var persWs = ss.getSheetByName(TAB_PERSONAL);
+  if (persWs) {
+    persWs.getDataRange().getValues().slice(1).forEach(function(row) {
+      var d = normDate(row[0]);
+      if (!dateSet[d]) return;
+      var title = String(row[2]).trim();
+      if (!title) return;
+      var time  = normTime(row[1]);
+      var item  = {
+        source: TAB_PERSONAL,
+        time:   time,
+        title:  title,
+        desc:   String(row[3]).trim(),
+        link:   String(row[4]).trim()
+      };
+      if (time) { out[d].timed.push(item); }
+      else      { out[d].allDay.push(item); }
     });
   }
 
@@ -98,6 +120,25 @@ function getCalendarData(startDateStr, nDays) {
   });
 
   return out;
+}
+
+// ── Add personal event ────────────────────────────────────────────────────────
+// data: { date: "DD/MM/YYYY", time: "HH:MM" or "", title, desc, link }
+function addEvent(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ws = ss.getSheetByName(TAB_PERSONAL);
+  if (!ws) {
+    ws = ss.insertSheet(TAB_PERSONAL);
+    ws.appendRow(['תאריך', 'שעה', 'אירוע', 'תיאור', 'קישור']);
+  }
+  ws.appendRow([
+    data.date  || '',
+    data.time  || '',
+    data.title || '',
+    data.desc  || '',
+    data.link  || ''
+  ]);
+  return { ok: true };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -120,9 +161,20 @@ function normDate(v) {
   return String(v).trim();
 }
 
+// GAS returns time-only cells as a Date object with epoch date Dec 30 1899.
+// Extract just HH:MM regardless of whether we get a Date or a "HH:MM" string.
+function normTime(v) {
+  if (!v && v !== 0) return '';
+  if (v instanceof Date) {
+    return p2(v.getHours()) + ':' + p2(v.getMinutes());
+  }
+  var s = String(v).trim();
+  var m = s.match(/(\d{1,2}):(\d{2})/);
+  return m ? p2(+m[1]) + ':' + m[2] : '';
+}
+
 function p2(n) { return n < 10 ? '0' + n : String(n); }
 
-// Translate with 24-hour script cache to avoid repeated API calls
 function translateCached(text) {
   if (!text) return '';
   var cache = CacheService.getScriptCache();
@@ -134,7 +186,7 @@ function translateCached(text) {
     cache.put(key, tr, 86400);
     return tr;
   } catch (e) {
-    Logger.log('WCH translate failed for: ' + text + ' — ' + e);
-    return text; // fallback: show English
+    Logger.log('WCH translate failed: ' + text + ' — ' + e);
+    return text;
   }
 }
