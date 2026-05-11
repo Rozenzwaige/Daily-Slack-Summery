@@ -23,17 +23,15 @@ function getCalendarData(startDateStr, nDays) {
   var dates       = buildDateStrings(startDateStr, nDays);
   var currentYear = new Date().getFullYear();
 
-  // fullMap:  "DD/MM/YYYY" → true   (for exact-year matching)
-  // dmMap:    "DD/MM"      → "DD/MM/YYYY"  (day-month only, historical events)
-  var fullMap = Object.create(null);
-  var dmMap   = Object.create(null);
+  var fullMap = Object.create(null);   // "DD/MM/YYYY" → true
+  var dmMap   = Object.create(null);   // "DD/MM"      → "DD/MM/YYYY"
   dates.forEach(function(d) {
-    fullMap[d]          = true;
-    dmMap[d.slice(0,5)] = d;          // "11/05" → "11/05/2026"
+    fullMap[d] = true;
+    dmMap[d.slice(0, 5)] = d;
     out[d] = { allDay: [], timed: [] };
   });
 
-  // ── Timed sources: כנסת / ממשלה / בתי משפט ──────────────────────────────
+  // ── Timed: כנסת / ממשלה / בתי משפט ──────────────────────────────────────
   // Columns: A=date  B=time  C=title  D=description  E=link
   [TAB_KNESSET, TAB_GOV, TAB_COURTS].forEach(function(tab) {
     var ws = ss.getSheetByName(tab);
@@ -53,13 +51,11 @@ function getCalendarData(startDateStr, nDays) {
     });
   });
 
-  // ── ויקיפדיה — exact-year match (scraper writes current-year dates) ───────
+  // ── ויקיפדיה — exact-year match ──────────────────────────────────────────
   // Columns: A=date  B=(empty)  C=title  D=description  E=link
   var wikiWs = ss.getSheetByName(TAB_WIKI);
   if (wikiWs) {
-    var wikiRows = wikiWs.getDataRange().getValues().slice(1);
-    Logger.log('[wiki] rows in sheet: ' + wikiRows.length);
-    wikiRows.forEach(function(row) {
+    wikiWs.getDataRange().getValues().slice(1).forEach(function(row) {
       var d = normDate(row[0]);
       if (!fullMap[d]) return;
       var title = String(row[2]).trim();
@@ -73,51 +69,33 @@ function getCalendarData(startDateStr, nDays) {
     });
   }
 
-  // ── WCH — DD/MM match only; historical years; English titles translated ───
-  // Columns: A=date(historical)  B=title(EN)  C=text(EN)  D=media link
-  // Display: "לפני X שנה: [translated title]"
-  //
-  // Performance: collect all titles that need translation first, then batch-
-  // translate them in one HTTP call per 20 titles (instead of 1 call/title).
+  // ── WCH — DD/MM match; reads pre-translated Hebrew title from column E ────
+  // Columns: A=date(hist)  B=title(EN)  C=text(EN)  D=link  E=title(HE)
+  // Column E is populated once by running translateWCHSheet() from the editor.
+  // Display: "לפני X שנה: [title]"
   var wchWs = ss.getSheetByName(TAB_WCH);
   if (wchWs) {
-    var wchItems = [];
     wchWs.getDataRange().getValues().slice(1).forEach(function(row) {
       var dm = normDateDM(row[0]);
       var d  = dmMap[dm];
       if (!d) return;
-      var titleEn = String(row[1]).trim();
-      if (!titleEn) return;
-      wchItems.push({ d: d, titleEn: titleEn,
-                      histYear: extractYear(row[0]),
-                      link: String(row[3]).trim() });
-    });
-
-    // Batch-translate titles not yet in cache
-    var scriptCache = CacheService.getScriptCache();
-    var uncached = [], seenKeys = Object.create(null);
-    wchItems.forEach(function(it) {
-      var k = cacheKey(it.titleEn);
-      if (!scriptCache.get(k) && !seenKeys[k]) { uncached.push(it.titleEn); seenKeys[k] = true; }
-    });
-    if (uncached.length) batchTranslate(uncached);   // fills cache in chunks of 20
-
-    // Now assemble rows using warmed cache
-    wchItems.forEach(function(it) {
-      var yearsAgo = (it.histYear && it.histYear < currentYear) ? currentYear - it.histYear : 0;
-      var titleHe  = translateCached(it.titleEn);
-      out[it.d].allDay.push({
+      var titleHe = String(row[4] || '').trim();   // col E: pre-translated
+      var titleEn = String(row[1] || '').trim();
+      var title   = titleHe || titleEn;            // fallback to English if not yet translated
+      if (!title) return;
+      var histYear = extractYear(row[0]);
+      var yearsAgo = (histYear && histYear < currentYear) ? currentYear - histYear : 0;
+      out[d].allDay.push({
         source: TAB_WCH,
-        title:  yearsAgo > 0 ? 'לפני ' + yearsAgo + ' שנה: ' + titleHe : titleHe,
+        title:  yearsAgo > 0 ? 'לפני ' + yearsAgo + ' שנה: ' + title : title,
         desc:   '',
-        link:   it.link
+        link:   String(row[3]).trim()
       });
     });
   }
 
-  // ── סוציאליסטי — DD/MM match only; historical years; Hebrew titles ────────
-  // Columns: A=date(historical)  B=title(HE)
-  // Display: "לפני X שנה: [title]"  (or just title if current year)
+  // ── סוציאליסטי — DD/MM match; Hebrew titles in column B ─────────────────
+  // Columns: A=date(hist)  B=title(HE)
   var socialWs = ss.getSheetByName(TAB_SOCIALIST);
   if (socialWs) {
     socialWs.getDataRange().getValues().slice(1).forEach(function(row) {
@@ -137,7 +115,7 @@ function getCalendarData(startDateStr, nDays) {
     });
   }
 
-  // ── Personal events (אירועים) — exact-year match ─────────────────────────
+  // ── Personal events ───────────────────────────────────────────────────────
   // Columns: A=date  B=time  C=title  D=description  E=link
   var persWs = ss.getSheetByName(TAB_PERSONAL);
   if (persWs) {
@@ -176,6 +154,71 @@ function addEvent(data) {
   return { ok: true };
 }
 
+// ── translateWCHSheet — run ONCE from the Apps Script editor ─────────────────
+// Adds column E ("כותרת עברית") to the WCH sheet by translating column B.
+// After this runs, getCalendarData reads from column E — no runtime translation.
+function translateWCHSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ws = ss.getSheetByName(TAB_WCH);
+  if (!ws) { Logger.log('ERROR: WCH sheet not found'); return; }
+
+  var lastRow = ws.getLastRow();
+  if (lastRow < 2) { Logger.log('WCH sheet is empty'); return; }
+
+  // Write header for column E (row 1)
+  ws.getRange(1, 5).setValue('כותרת עברית');
+
+  // Read all English titles (col B) and existing translations (col E)
+  var colB = ws.getRange(2, 2, lastRow - 1, 1).getValues();  // B2:B
+  var colE = ws.getRange(2, 5, lastRow - 1, 1).getValues();  // E2:E
+
+  // Collect rows that still need translation
+  var todo = [];
+  for (var r = 0; r < colB.length; r++) {
+    var en = String(colB[r][0]).trim();
+    var he = String(colE[r][0]).trim();
+    if (en && !he) todo.push({ offset: r, en: en });
+  }
+  Logger.log('Rows to translate: ' + todo.length);
+  if (!todo.length) { Logger.log('All rows already translated.'); return; }
+
+  // Batch translate (20 titles per HTTP call) and write results immediately
+  var CHUNK = 20;
+  var done  = 0;
+  for (var i = 0; i < todo.length; i += CHUNK) {
+    var chunk = todo.slice(i, i + CHUNK);
+    var translations = _fetchTranslations(chunk.map(function(x) { return x.en; }));
+    chunk.forEach(function(item, j) {
+      if (translations[j]) {
+        ws.getRange(item.offset + 2, 5).setValue(translations[j]);
+        done++;
+      }
+    });
+    SpreadsheetApp.flush();
+    Logger.log('Progress: ' + done + ' / ' + todo.length);
+    if (i + CHUNK < todo.length) Utilities.sleep(400);
+  }
+  Logger.log('translateWCHSheet complete — ' + done + ' rows translated.');
+}
+
+// Sends up to 20 English titles in one HTTP call, returns translated array.
+function _fetchTranslations(texts) {
+  var qs   = texts.map(function(t) { return 'q=' + encodeURIComponent(t); }).join('&');
+  var url  = 'https://translate.googleapis.com/translate_a/t'
+           + '?client=dict-chrome-ex&sl=en&tl=iw&' + qs;
+  try {
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, deadline: 30 });
+    var json = JSON.parse(resp.getContentText());
+    return texts.map(function(_, j) {
+      var item = json[j];
+      return Array.isArray(item) ? (item[0] || '') : String(item || '');
+    });
+  } catch (e) {
+    Logger.log('_fetchTranslations failed: ' + e);
+    return texts.map(function() { return ''; });
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function buildDateStrings(startStr, n) {
   var p    = startStr.split('/');
@@ -189,7 +232,6 @@ function buildDateStrings(startStr, n) {
   return out;
 }
 
-// Full "DD/MM/YYYY" from a cell value
 function normDate(v) {
   if (v instanceof Date) {
     return p2(v.getDate()) + '/' + p2(v.getMonth() + 1) + '/' + v.getFullYear();
@@ -197,86 +239,20 @@ function normDate(v) {
   return String(v).trim();
 }
 
-// "DD/MM" only — ignores the year (used for historical-date tabs)
 function normDateDM(v) {
-  var full = normDate(v);
-  return full.slice(0, 5);   // "DD/MM"
+  return normDate(v).slice(0, 5);   // "DD/MM"
 }
 
-// Extract the 4-digit year from a cell value
 function extractYear(v) {
-  var s = normDate(v);
-  var m = s.match(/\/(\d{4})$/);
+  var m = normDate(v).match(/\/(\d{4})$/);
   return m ? +m[1] : null;
 }
 
-// GAS returns time-only cells as Date objects with epoch date Dec 30 1899
 function normTime(v) {
   if (!v && v !== 0) return '';
-  if (v instanceof Date) {
-    return p2(v.getHours()) + ':' + p2(v.getMinutes());
-  }
-  var s = String(v).trim();
-  var m = s.match(/(\d{1,2}):(\d{2})/);
+  if (v instanceof Date) return p2(v.getHours()) + ':' + p2(v.getMinutes());
+  var m = String(v).match(/(\d{1,2}):(\d{2})/);
   return m ? p2(+m[1]) + ':' + m[2] : '';
 }
 
 function p2(n) { return n < 10 ? '0' + n : String(n); }
-
-// ── Translation helpers ───────────────────────────────────────────────────────
-
-function cacheKey(text) {
-  return 'wch_' + text.slice(0, 80).replace(/\W/g, '_');
-}
-
-// Translate one title — reads from cache, falls back to a single HTTP call.
-// Prefer calling batchTranslate() first to warm the cache in bulk.
-function translateCached(text) {
-  if (!text) return '';
-  var cache = CacheService.getScriptCache();
-  var key   = cacheKey(text);
-  var hit   = cache.get(key);
-  if (hit) return hit;
-
-  // Single-item fallback (should rarely be needed after batchTranslate)
-  try {
-    var url  = 'https://translate.googleapis.com/translate_a/single'
-             + '?client=gtx&sl=en&tl=iw&dt=t&q='
-             + encodeURIComponent(text);
-    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, deadline: 10 });
-    var json = JSON.parse(resp.getContentText());
-    var tr   = json[0].map(function(seg) { return seg[0]; }).join('');
-    if (tr) { cache.put(key, tr, 86400); return tr; }
-  } catch (e) {
-    Logger.log('translateCached failed: ' + text.slice(0, 60) + ' — ' + e);
-  }
-  return text;
-}
-
-// Batch-translate an array of English strings → stores results in script cache.
-// Uses the dict-chrome-ex endpoint which accepts multiple `q` params in one call.
-// Processed in chunks of 20 to stay within URL length limits.
-function batchTranslate(texts) {
-  if (!texts || !texts.length) return;
-  var cache = CacheService.getScriptCache();
-  var CHUNK = 20;
-
-  for (var i = 0; i < texts.length; i += CHUNK) {
-    var chunk = texts.slice(i, i + CHUNK);
-    var qs    = chunk.map(function(t) { return 'q=' + encodeURIComponent(t); }).join('&');
-    var url   = 'https://translate.googleapis.com/translate_a/t'
-              + '?client=dict-chrome-ex&sl=en&tl=iw&' + qs;
-    try {
-      var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, deadline: 30 });
-      var json = JSON.parse(resp.getContentText());
-      // Response: [["tr1"],["tr2"],...] or ["tr1","tr2",...]
-      chunk.forEach(function(original, j) {
-        var item       = json[j];
-        var translated = Array.isArray(item) ? (item[0] || '') : String(item || '');
-        if (translated) cache.put(cacheKey(original), translated, 86400);
-      });
-    } catch (e) {
-      Logger.log('batchTranslate chunk ' + i + ' failed: ' + e);
-    }
-  }
-}
