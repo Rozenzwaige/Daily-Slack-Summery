@@ -183,7 +183,7 @@ function translateWCHSheet() {
   if (!todo.length) { Logger.log('All rows already translated.'); return; }
 
   // Batch translate (20 titles per HTTP call) and write results immediately
-  var CHUNK = 20;
+  var CHUNK = 100;   // Cloud Translation API supports up to 128 strings per call
   var done  = 0;
   for (var i = 0; i < todo.length; i += CHUNK) {
     var chunk = todo.slice(i, i + CHUNK);
@@ -201,18 +201,30 @@ function translateWCHSheet() {
   Logger.log('translateWCHSheet complete — ' + done + ' rows translated.');
 }
 
-// Sends up to 20 English titles in one HTTP call, returns translated array.
+// Sends up to 128 titles in one HTTP POST to Cloud Translation API v2.
+// Requires TRANSLATE_API_KEY in Script Properties.
 function _fetchTranslations(texts) {
-  var qs   = texts.map(function(t) { return 'q=' + encodeURIComponent(t); }).join('&');
-  var url  = 'https://translate.googleapis.com/translate_a/t'
-           + '?client=dict-chrome-ex&sl=en&tl=iw&' + qs;
+  var key = PropertiesService.getScriptProperties().getProperty('TRANSLATE_API_KEY');
+  if (!key) {
+    Logger.log('TRANSLATE_API_KEY not set in Script Properties');
+    return texts.map(function() { return ''; });
+  }
+  var url  = 'https://translation.googleapis.com/language/translate/v2?key=' + key;
+  var body = JSON.stringify({ q: texts, source: 'en', target: 'iw', format: 'text' });
   try {
-    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, deadline: 30 });
-    var json = JSON.parse(resp.getContentText());
-    return texts.map(function(_, j) {
-      var item = json[j];
-      return Array.isArray(item) ? (item[0] || '') : String(item || '');
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: body,
+      muteHttpExceptions: true,
+      deadline: 30
     });
+    var json = JSON.parse(resp.getContentText());
+    if (json.error) {
+      Logger.log('Translation API error: ' + JSON.stringify(json.error));
+      return texts.map(function() { return ''; });
+    }
+    return json.data.translations.map(function(t) { return t.translatedText || ''; });
   } catch (e) {
     Logger.log('_fetchTranslations failed: ' + e);
     return texts.map(function() { return ''; });
