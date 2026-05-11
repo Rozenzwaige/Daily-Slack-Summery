@@ -88,7 +88,14 @@ def _fetch_day(d: date) -> list[list]:
                 heading_el = section.find(["h2", "h3"])
                 heading = heading_el.get_text(" ", strip=True) if heading_el else ""
                 if re.search(r"חגים", heading):
-                    _extract_items(section, date_str, rows)
+                    # Iterate direct children; stop at <hr> (which separates
+                    # the holiday list from the day-navigation links below it)
+                    for child in section.children:
+                        tag = getattr(child, "name", None)
+                        if tag == "hr":
+                            break
+                        if tag == "ul":
+                            _extract_items(child, date_str, rows)
         else:
             # Flat layout: h2/h3 siblings followed by ul siblings
             in_holidays = False
