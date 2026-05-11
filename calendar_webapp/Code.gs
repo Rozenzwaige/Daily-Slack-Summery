@@ -76,22 +76,41 @@ function getCalendarData(startDateStr, nDays) {
   // ── WCH — DD/MM match only; historical years; English titles translated ───
   // Columns: A=date(historical)  B=title(EN)  C=text(EN)  D=media link
   // Display: "לפני X שנה: [translated title]"
+  //
+  // Performance: collect all titles that need translation first, then batch-
+  // translate them in one HTTP call per 20 titles (instead of 1 call/title).
   var wchWs = ss.getSheetByName(TAB_WCH);
   if (wchWs) {
+    var wchItems = [];
     wchWs.getDataRange().getValues().slice(1).forEach(function(row) {
-      var dm = normDateDM(row[0]);          // "DD/MM"
+      var dm = normDateDM(row[0]);
       var d  = dmMap[dm];
       if (!d) return;
       var titleEn = String(row[1]).trim();
       if (!titleEn) return;
-      var histYear = extractYear(row[0]);
-      var yearsAgo = (histYear && histYear < currentYear) ? currentYear - histYear : 0;
-      var titleHe  = translateCached(titleEn);
-      out[d].allDay.push({
+      wchItems.push({ d: d, titleEn: titleEn,
+                      histYear: extractYear(row[0]),
+                      link: String(row[3]).trim() });
+    });
+
+    // Batch-translate titles not yet in cache
+    var scriptCache = CacheService.getScriptCache();
+    var uncached = [], seenKeys = Object.create(null);
+    wchItems.forEach(function(it) {
+      var k = cacheKey(it.titleEn);
+      if (!scriptCache.get(k) && !seenKeys[k]) { uncached.push(it.titleEn); seenKeys[k] = true; }
+    });
+    if (uncached.length) batchTranslate(uncached);   // fills cache in chunks of 20
+
+    // Now assemble rows using warmed cache
+    wchItems.forEach(function(it) {
+      var yearsAgo = (it.histYear && it.histYear < currentYear) ? currentYear - it.histYear : 0;
+      var titleHe  = translateCached(it.titleEn);
+      out[it.d].allDay.push({
         source: TAB_WCH,
         title:  yearsAgo > 0 ? 'לפני ' + yearsAgo + ' שנה: ' + titleHe : titleHe,
         desc:   '',
-        link:   String(row[3]).trim()
+        link:   it.link
       });
     });
   }
@@ -204,29 +223,60 @@ function normTime(v) {
 
 function p2(n) { return n < 10 ? '0' + n : String(n); }
 
-// Translate English → Hebrew via Google Translate (unofficial endpoint, no key needed).
-// Results are cached in GAS script cache for 24 hours to avoid repeated calls.
+// ── Translation helpers ───────────────────────────────────────────────────────
+
+function cacheKey(text) {
+  return 'wch_' + text.slice(0, 80).replace(/\W/g, '_');
+}
+
+// Translate one title — reads from cache, falls back to a single HTTP call.
+// Prefer calling batchTranslate() first to warm the cache in bulk.
 function translateCached(text) {
   if (!text) return '';
   var cache = CacheService.getScriptCache();
-  var key   = 'wch_' + text.slice(0, 80).replace(/\W/g, '_');
+  var key   = cacheKey(text);
   var hit   = cache.get(key);
   if (hit) return hit;
 
+  // Single-item fallback (should rarely be needed after batchTranslate)
   try {
     var url  = 'https://translate.googleapis.com/translate_a/single'
              + '?client=gtx&sl=en&tl=iw&dt=t&q='
              + encodeURIComponent(text);
-    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    // Response: [ [ ["translated","original",...], ... ], null, "en" ]
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, deadline: 10 });
     var json = JSON.parse(resp.getContentText());
     var tr   = json[0].map(function(seg) { return seg[0]; }).join('');
-    if (tr) {
-      cache.put(key, tr, 86400);
-      return tr;
-    }
+    if (tr) { cache.put(key, tr, 86400); return tr; }
   } catch (e) {
-    Logger.log('WCH translate failed for: ' + text.slice(0,60) + ' — ' + e);
+    Logger.log('translateCached failed: ' + text.slice(0, 60) + ' — ' + e);
   }
-  return text;   // fallback: original English
+  return text;
+}
+
+// Batch-translate an array of English strings → stores results in script cache.
+// Uses the dict-chrome-ex endpoint which accepts multiple `q` params in one call.
+// Processed in chunks of 20 to stay within URL length limits.
+function batchTranslate(texts) {
+  if (!texts || !texts.length) return;
+  var cache = CacheService.getScriptCache();
+  var CHUNK = 20;
+
+  for (var i = 0; i < texts.length; i += CHUNK) {
+    var chunk = texts.slice(i, i + CHUNK);
+    var qs    = chunk.map(function(t) { return 'q=' + encodeURIComponent(t); }).join('&');
+    var url   = 'https://translate.googleapis.com/translate_a/t'
+              + '?client=dict-chrome-ex&sl=en&tl=iw&' + qs;
+    try {
+      var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, deadline: 30 });
+      var json = JSON.parse(resp.getContentText());
+      // Response: [["tr1"],["tr2"],...] or ["tr1","tr2",...]
+      chunk.forEach(function(original, j) {
+        var item       = json[j];
+        var translated = Array.isArray(item) ? (item[0] || '') : String(item || '');
+        if (translated) cache.put(cacheKey(original), translated, 86400);
+      });
+    } catch (e) {
+      Logger.log('batchTranslate chunk ' + i + ' failed: ' + e);
+    }
+  }
 }
