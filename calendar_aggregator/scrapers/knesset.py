@@ -155,9 +155,11 @@ def _committee_sessions(start: datetime, end: datetime) -> list[list]:
         topics = agenda_map.get(sid, [])
         desc   = " | ".join(topics) if topics else ""
 
-        link = (item.get("SessionUrl") or "").strip()
-        if link and not link.startswith("http"):
-            link = "https://main.knesset.gov.il" + link
+        committee_id = item.get("CommitteeID") or (committee_obj.get("CommitteeID") if committee_obj else None)
+        link = (
+            f"https://main.knesset.gov.il/APPS/committees/{committee_id}/sessions/{sid}"
+            if committee_id and sid else ""
+        )
 
         rows.append([date_str, time_str, committee, desc, link])
     return rows
