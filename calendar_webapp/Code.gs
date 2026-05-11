@@ -154,82 +154,10 @@ function addEvent(data) {
   return { ok: true };
 }
 
-// ── translateWCHSheet — run ONCE from the Apps Script editor ─────────────────
-// Adds column E ("כותרת עברית") to the WCH sheet by translating column B.
-// After this runs, getCalendarData reads from column E — no runtime translation.
-function translateWCHSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ws = ss.getSheetByName(TAB_WCH);
-  if (!ws) { Logger.log('ERROR: WCH sheet not found'); return; }
-
-  var lastRow = ws.getLastRow();
-  if (lastRow < 2) { Logger.log('WCH sheet is empty'); return; }
-
-  // Write header for column E (row 1)
-  ws.getRange(1, 5).setValue('כותרת עברית');
-
-  // Read all English titles (col B) and existing translations (col E)
-  var colB = ws.getRange(2, 2, lastRow - 1, 1).getValues();  // B2:B
-  var colE = ws.getRange(2, 5, lastRow - 1, 1).getValues();  // E2:E
-
-  // Collect rows that still need translation
-  var todo = [];
-  for (var r = 0; r < colB.length; r++) {
-    var en = String(colB[r][0]).trim();
-    var he = String(colE[r][0]).trim();
-    if (en && !he) todo.push({ offset: r, en: en });
-  }
-  Logger.log('Rows to translate: ' + todo.length);
-  if (!todo.length) { Logger.log('All rows already translated.'); return; }
-
-  // Batch translate (20 titles per HTTP call) and write results immediately
-  var CHUNK = 100;   // Cloud Translation API supports up to 128 strings per call
-  var done  = 0;
-  for (var i = 0; i < todo.length; i += CHUNK) {
-    var chunk = todo.slice(i, i + CHUNK);
-    var translations = _fetchTranslations(chunk.map(function(x) { return x.en; }));
-    chunk.forEach(function(item, j) {
-      if (translations[j]) {
-        ws.getRange(item.offset + 2, 5).setValue(translations[j]);
-        done++;
-      }
-    });
-    SpreadsheetApp.flush();
-    Logger.log('Progress: ' + done + ' / ' + todo.length);
-    if (i + CHUNK < todo.length) Utilities.sleep(400);
-  }
-  Logger.log('translateWCHSheet complete — ' + done + ' rows translated.');
-}
-
-// Sends up to 128 titles in one HTTP POST to Cloud Translation API v2.
-// Requires TRANSLATE_API_KEY in Script Properties.
-function _fetchTranslations(texts) {
-  var key = PropertiesService.getScriptProperties().getProperty('TRANSLATE_API_KEY');
-  if (!key) {
-    Logger.log('TRANSLATE_API_KEY not set in Script Properties');
-    return texts.map(function() { return ''; });
-  }
-  var url  = 'https://translation.googleapis.com/language/translate/v2?key=' + key;
-  var body = JSON.stringify({ q: texts, source: 'en', target: 'iw', format: 'text' });
-  try {
-    var resp = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: body,
-      muteHttpExceptions: true,
-      deadline: 30
-    });
-    var json = JSON.parse(resp.getContentText());
-    if (json.error) {
-      Logger.log('Translation API error: ' + JSON.stringify(json.error));
-      return texts.map(function() { return ''; });
-    }
-    return json.data.translations.map(function(t) { return t.translatedText || ''; });
-  } catch (e) {
-    Logger.log('_fetchTranslations failed: ' + e);
-    return texts.map(function() { return ''; });
-  }
-}
+// ── WCH translation ───────────────────────────────────────────────────────────
+// Column E ("כותרת עברית") is populated once by the Python script:
+//   python calendar_aggregator/translate_wch.py
+// After that, getCalendarData() reads from col E — no runtime translation needed.
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function buildDateStrings(startStr, n) {
