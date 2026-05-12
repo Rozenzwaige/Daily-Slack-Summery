@@ -123,6 +123,10 @@ KEYWORDS_HE = [
     "איגודי עובדים", "ארגוני עובדים", "מאבקי עובדים",
     "שביתה", "סכסוך עבודה", "פיטורים", "קיצוצים",
     "הסתדרות", "כח לעובדים",
+    "זכויות עובדים", "התארגנות עובדים", "ועד עובדים",
+    "הסכם קיבוצי", "חוזה קיבוצי", "תנאי עבודה", "עובדי קבלן",
+    "שכר הוגן", "שכר ראוי", "פנסיה", "ימי מחלה", "חופשת לידה",
+    "שוק העבודה", "עובדים", "מעסיק", "עובד", "שכיר",
     # שמאל בעולם
     "ברני סנדרס", "אלכסנדריה אוקסיו קורטז", "AOC",
     "ג'רמי קורבין", "ממדני", "מאמדני",
@@ -162,6 +166,10 @@ KEYWORDS_EN = [
     "unemployment", "GDP", "deficit", "stock market", "cost of living",
     "socialist", "socialism", "privatization", "labor union", "workers strike",
     "layoffs", "austerity", "labor dispute", "Histadrut",
+    "workers rights", "labor rights", "collective bargaining", "trade union",
+    "unionization", "organizing workers", "gig economy", "precarious work",
+    "living wage", "minimum wage", "pension", "sick leave", "parental leave",
+    "workplace", "labor movement", "workers organizing", "labor organizing",
     # אקלים
     "climate", "global warming", "environment", "heat wave", "drought", "flood", "pollution",
     # שמאל בעולם
@@ -191,12 +199,19 @@ GOOGLE_NEWS_QUERIES = [
     "שלום ישראל פלסטין",
     "פשיעה אלימות חברה ערבית ישראל",
     "שביתה איגוד עובדים ישראל",
+    "זכויות עובדים התארגנות ישראל",
+    "מאבק עובדים שכר תנאים ישראל",
+    "עובדי קבלן הסכם קיבוצי ישראל",
     "Gaza ceasefire",
     "West Bank settler violence",
     "workers strike labor union",
+    "labor movement workers organizing",
+    "workers rights collective bargaining",
+    "gig workers precarious labor",
     "socialist policy left-wing",
     "Bernie Sanders AOC progressive",
     "Labour Podemos Syriza left-wing",
+    "Jacobin labor workers",
 ]
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -460,6 +475,12 @@ def collect_articles() -> list[dict]:
         # וואלה RSS
         ("וואלה חדשות",          "https://rss.walla.co.il/feed/22"),
         ("וואלה כלכלה",          "https://rss.walla.co.il/feed/2"),
+        # Jacobin — left-wing analysis, labor & social movements
+        ("Jacobin",              "https://jacobin.com/feed/"),
+        # The Economist — economics & business (via Google News, paywalled direct RSS)
+        ("The Economist",        "https://news.google.com/rss/search?q=site:economist.com+(labor+OR+workers+OR+economy+OR+inequality+OR+welfare)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        # WSJ — economics & labor (via Google News, paywalled direct RSS)
+        ("WSJ",                  "https://news.google.com/rss/search?q=site:wsj.com+(labor+OR+workers+OR+economy+OR+inequality+OR+union)+when:1d&hl=en-US&gl=US&ceid=US:en"),
     ]
     for name, url in reliable_rss:
         batch = fetch_rss(name, url)
