@@ -124,8 +124,9 @@ function getCalendarData(startDateStr, nDays) {
       if (!fullMap[d]) return;
       var title = String(row[2]).trim();
       if (!title) return;
-      var time  = normTime(row[1]);
-      var item  = { source: TAB_PERSONAL, time: time, title: title,
+      var time     = normTime(row[1]);
+      var calendar = String(row[5] || '').trim() || TAB_PERSONAL;
+      var item  = { source: calendar, time: time, title: title,
                     desc: String(row[3]).trim(), link: String(row[4]).trim() };
       if (time) { out[d].timed.push(item); }
       else      { out[d].allDay.push(item); }
@@ -148,9 +149,9 @@ function addEvent(data) {
   var ws = ss.getSheetByName(TAB_PERSONAL);
   if (!ws) {
     ws = ss.insertSheet(TAB_PERSONAL);
-    ws.appendRow(['תאריך', 'שעה', 'אירוע', 'תיאור', 'קישור']);
+    ws.appendRow(['תאריך', 'שעה', 'אירוע', 'תיאור', 'קישור', 'לוח']);
   }
-  ws.appendRow([data.date||'', data.time||'', data.title||'', data.desc||'', data.link||'']);
+  ws.appendRow([data.date||'', data.time||'', data.title||'', data.desc||'', data.link||'', data.calendar||TAB_PERSONAL]);
   return { ok: true };
 }
 

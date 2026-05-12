@@ -361,6 +361,7 @@ header {
 .modal-field { display: flex; flex-direction: column; gap: 4px; }
 .modal-field label { font-size: .76rem; color: var(--muted); }
 .modal-field input,
+.modal-field select,
 .modal-field textarea {
   background: var(--bg3);
   border: 1px solid var(--border);
@@ -375,6 +376,7 @@ header {
 .modal-field input[type="date"],
 .modal-field input[type="time"] { direction: ltr; text-align: right; }
 .modal-field input:focus,
+.modal-field select:focus,
 .modal-field textarea:focus { border-color: var(--accent); }
 .modal-field input::placeholder,
 .modal-field textarea::placeholder { color: var(--muted); }
@@ -428,7 +430,7 @@ header {
       <button class="view-pill active" data-days="7" onclick="setView(7)">שבוע</button>
     </div>
     <button class="nav-btn" id="btn-next" hidden onclick="navigate(1)" title="הבא">‹</button>
-    <button class="hdr-btn" onclick="location.reload()">⟳ רענן</button>
+    <button class="hdr-btn" id="refresh-btn" onclick="refreshData()">⟳ רענן</button>
   </header>
 
   <!-- Source filter bar -->
@@ -472,6 +474,20 @@ header {
         <textarea id="m-desc" placeholder="פרטים נוספים..."></textarea>
       </div>
       <div class="modal-field">
+        <label>לוח</label>
+        <select id="m-cal" onchange="onCalChange()">
+          <option value="אירועים">📌 אירועים אישיים</option>
+          <option value="כנסת">🏛 כנסת</option>
+          <option value="ממשלה">🏛 ממשלה</option>
+          <option value="בתי משפט">⚖️ בתי משפט</option>
+          <option value="__new__">＋ לוח חדש...</option>
+        </select>
+      </div>
+      <div class="modal-field" id="m-newcal-wrap" style="display:none">
+        <label>שם הלוח החדש</label>
+        <input id="m-newcal" type="text" placeholder="שם הלוח...">
+      </div>
+      <div class="modal-field">
         <label>קישור</label>
         <input id="m-link" type="url" placeholder="https://...">
       </div>
@@ -497,11 +513,14 @@ var HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','�
 var FETCH_DAYS = 21;
 var ALLDAY_COLLAPSE = 3;   // max chips shown before "show more"
 
+var BUILTIN_SRCS = new Set(['כנסת','ממשלה','בתי משפט','ויקיפדיה','WCH','לוח השנה הסוציאליסטי','אירועים']);
+
 // ── Boot ───────────────────────────────────────────────────────────────────────
 (function boot() {
   google.script.run
     .withSuccessHandler(function(data) {
       _data = data;
+      _addCustomPillsFromData(data);
       document.getElementById('loading-screen').style.display = 'none';
       var app = document.getElementById('app');
       app.style.display = 'flex';
@@ -615,8 +634,11 @@ function buildAlldaySection(events) {
     var btn = el('button', 'allday-more-btn');
     btn.textContent = 'עוד ' + extra + ' אירועים';
     btn.onclick = function() {
-      sec.querySelectorAll('.extra-hidden').forEach(function(c) { c.classList.remove('extra-hidden'); });
-      btn.remove();
+      var expanded = btn.textContent === 'צמצם';
+      sec.querySelectorAll('.allday-chip').forEach(function(c, i) {
+        if (i >= ALLDAY_COLLAPSE) c.classList.toggle('extra-hidden', expanded);
+      });
+      btn.textContent = expanded ? 'עוד ' + extra + ' אירועים' : 'צמצם';
     };
     sec.appendChild(btn);
   }
@@ -642,6 +664,57 @@ function buildTimedCard(ev) {
   return card;
 }
 
+// ── Refresh ────────────────────────────────────────────────────────────────────
+function refreshData() {
+  var btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ טוען...';
+  google.script.run
+    .withSuccessHandler(function(data) {
+      _data = data;
+      _addCustomPillsFromData(data);
+      render();
+      btn.disabled = false;
+      btn.textContent = '⟳ רענן';
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false;
+      btn.textContent = '⟳ רענן';
+    })
+    .getCalendarData(todayStr(), FETCH_DAYS);
+}
+
+// ── Custom calendar pills ───────────────────────────────────────────────────────
+function _addCustomPillsFromData(data) {
+  Object.values(data).forEach(function(day) {
+    [].concat(day.allDay || [], day.timed || []).forEach(function(ev) {
+      if (!BUILTIN_SRCS.has(ev.source)) ensureSourcePill(ev.source);
+    });
+  });
+}
+
+function ensureSourcePill(src) {
+  if (document.querySelector('.src-pill[data-src="' + src + '"]')) return;
+  var pill = el('button', 'src-pill active');
+  pill.dataset.src = src;
+  pill.textContent = '📌 ' + src;
+  pill.onclick = function() { toggleSrc(pill); };
+  _activeSrcs.add(src);
+  document.getElementById('src-bar').appendChild(pill);
+  // Also add to modal dropdown
+  _addCalOption(src);
+}
+
+function _addCalOption(src) {
+  var sel = document.getElementById('m-cal');
+  if (!sel || sel.querySelector('[value="' + src + '"]')) return;
+  var opt = document.createElement('option');
+  opt.value = src;
+  opt.textContent = '📌 ' + src;
+  opt.dataset.custom = '1';
+  sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
+}
+
 // ── Add-event modal ────────────────────────────────────────────────────────────
 function openAddModal(prefillDate) {
   document.getElementById('m-title').value = '';
@@ -649,11 +722,20 @@ function openAddModal(prefillDate) {
   document.getElementById('m-time').value  = '';
   document.getElementById('m-desc').value  = '';
   document.getElementById('m-link').value  = '';
+  document.getElementById('m-cal').value   = 'אירועים';
+  document.getElementById('m-newcal-wrap').style.display = 'none';
+  document.getElementById('m-newcal').value = '';
   document.getElementById('modal-err').textContent = '';
   document.getElementById('modal-save-btn').disabled = false;
   document.getElementById('modal-save-btn').textContent = 'שמור';
   document.getElementById('modal-overlay').classList.add('open');
   setTimeout(function() { document.getElementById('m-title').focus(); }, 60);
+}
+
+function onCalChange() {
+  var isNew = document.getElementById('m-cal').value === '__new__';
+  document.getElementById('m-newcal-wrap').style.display = isNew ? '' : 'none';
+  if (isNew) setTimeout(function() { document.getElementById('m-newcal').focus(); }, 30);
 }
 
 function closeAddModal() {
@@ -665,16 +747,20 @@ function overlayClick(e) {
 }
 
 function saveEvent() {
-  var title = document.getElementById('m-title').value.trim();
-  var date  = document.getElementById('m-date').value;
-  var time  = document.getElementById('m-time').value;
-  var desc  = document.getElementById('m-desc').value.trim();
-  var link  = document.getElementById('m-link').value.trim();
-  var errEl = document.getElementById('modal-err');
-  var btn   = document.getElementById('modal-save-btn');
+  var title   = document.getElementById('m-title').value.trim();
+  var date    = document.getElementById('m-date').value;
+  var time    = document.getElementById('m-time').value;
+  var desc    = document.getElementById('m-desc').value.trim();
+  var link    = document.getElementById('m-link').value.trim();
+  var calSel  = document.getElementById('m-cal').value;
+  var calNew  = document.getElementById('m-newcal').value.trim();
+  var calendar = (calSel === '__new__') ? calNew : calSel;
+  var errEl   = document.getElementById('modal-err');
+  var btn     = document.getElementById('modal-save-btn');
 
-  if (!title) { errEl.textContent = 'כותרת היא שדה חובה'; return; }
-  if (!date)  { errEl.textContent = 'תאריך הוא שדה חובה'; return; }
+  if (!title)    { errEl.textContent = 'כותרת היא שדה חובה'; return; }
+  if (!date)     { errEl.textContent = 'תאריך הוא שדה חובה'; return; }
+  if (!calendar) { errEl.textContent = 'יש לבחור לוח או להזין שם לוח חדש'; return; }
   errEl.textContent = '';
 
   // Convert HTML date "YYYY-MM-DD" → "DD/MM/YYYY"
@@ -686,17 +772,16 @@ function saveEvent() {
 
   google.script.run
     .withSuccessHandler(function() {
-      // Merge into local cache so it shows immediately without reload
-      var dateKey = sheetDate;
-      if (!_data[dateKey]) _data[dateKey] = { allDay: [], timed: [] };
-      var item = { source: 'אירועים', time: time, title: title, desc: desc, link: link };
+      ensureSourcePill(calendar);
+      if (!_data[sheetDate]) _data[sheetDate] = { allDay: [], timed: [] };
+      var item = { source: calendar, time: time, title: title, desc: desc, link: link };
       if (time) {
-        _data[dateKey].timed.push(item);
-        _data[dateKey].timed.sort(function(a,b) {
+        _data[sheetDate].timed.push(item);
+        _data[sheetDate].timed.sort(function(a,b) {
           return (a.time||'99:99') < (b.time||'99:99') ? -1 : 1;
         });
       } else {
-        _data[dateKey].allDay.push(item);
+        _data[sheetDate].allDay.push(item);
       }
       closeAddModal();
       render();
@@ -706,7 +791,7 @@ function saveEvent() {
       btn.textContent = 'שמור';
       errEl.textContent = err.message || 'שגיאה בשמירה';
     })
-    .addEvent({ date: sheetDate, time: time, title: title, desc: desc, link: link });
+    .addEvent({ date: sheetDate, time: time, title: title, desc: desc, link: link, calendar: calendar });
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────────
