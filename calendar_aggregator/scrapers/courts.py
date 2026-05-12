@@ -108,10 +108,22 @@ def _ask_claude(client, title: str, summary: str, link: str) -> dict | None:
             messages=[{"role": "user", "content": article_text}],
         )
         raw = msg.content[0].text.strip()
-        # Strip markdown code fences if present
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        return json.loads(raw)
+        # Extract the first complete {...} JSON object by counting braces
+        start = raw.find("{")
+        if start == -1:
+            return None
+        depth, end = 0, -1
+        for i, ch in enumerate(raw[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end == -1:
+            return None
+        return json.loads(raw[start:end + 1])
     except Exception as e:
         print(f"[courts] Claude error for '{title[:40]}': {e}")
         return None
