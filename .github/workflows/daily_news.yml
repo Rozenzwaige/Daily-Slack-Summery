@@ -2,9 +2,9 @@ name: Daily News Summary
 
 on:
   schedule:
-    # 03:00 UTC = 06:00 IDT (Israel Daylight Time, UTC+3)
-    # Sunday–Thursday only. GitHub cron may arrive up to ~30 min late.
-    - cron: "0 3 * * 0,1,2,3,4"
+    # Runs every hour 02–09 UTC (05–12 IDT) sun–thu.
+    # Actual send-hour is controlled by the SCHEDULE_HOUR_IDT repo variable.
+    - cron: "0 2-9 * * 0,1,2,3,4"
 
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
@@ -20,9 +20,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # ── Manual trigger: always run ──────────────────────────────────
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "▶️  Manual trigger — running."
             echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # ── Hour check: only run at the hour set in SCHEDULE_HOUR_IDT ──
+          CURRENT_HOUR_IL=$(python3 -c "
+          from datetime import datetime
+          import zoneinfo
+          print(datetime.now(zoneinfo.ZoneInfo('Asia/Jerusalem')).hour)
+          ")
+          TARGET_HOUR="${{ vars.SCHEDULE_HOUR_IDT }}"
+          if [ -z "$TARGET_HOUR" ]; then TARGET_HOUR="6"; fi
+          if [ "$CURRENT_HOUR_IL" != "$TARGET_HOUR" ]; then
+            echo "⏰ Not the scheduled hour (IL=${CURRENT_HOUR_IL}:00, target=${TARGET_HOUR}:00) — skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
