@@ -721,42 +721,86 @@ def send_to_slack(text: str):
 
 def slack_to_whatsapp(text: str) -> str:
     """
-    Convert Slack mrkdwn to WhatsApp-compatible plain text.
-    <URL|display text>  →  display text (URL)
-    <URL>               →  URL
+    Convert Slack mrkdwn to WhatsApp-compatible text.
+    <URL|source name>  →  *source name*   (bold, URL hidden — WA doesn't support custom-text links)
+    <URL>              →  (removed — raw redirect URLs are ugly and useless in WA)
     """
     import re
-    text = re.sub(r"<(https?://[^|>]+)\|([^>]+)>", r"\2 (\1)", text)
-    text = re.sub(r"<(https?://[^>]+)>", r"\1", text)
-    return text
+    text = re.sub(r"<https?://[^|>]+\|([^>]+)>", r"*\1*", text)
+    text = re.sub(r"<https?://[^>]+>", "", text)
+    return text.strip()
+
+
+def split_whatsapp_sections(text: str) -> list[str]:
+    """
+    Split the summary into one WhatsApp message per section.
+    Section headers look like:  *🔴 גדה המערבית ומתנחלים*
+    The date header (📰 ...) is prepended to the first section.
+    """
+    import re
+    lines = text.split("\n")
+
+    header = ""
+    body_lines: list[str] = []
+    for line in lines:
+        if line.startswith("📰"):
+            header = line
+        else:
+            body_lines.append(line)
+
+    # Section header pattern: a line that is exactly  *<content>*  (short, has an emoji)
+    section_re = re.compile(r"^\*[^*]{2,50}\*\s*$")
+
+    sections: list[str] = []
+    current: list[str] = []
+
+    for line in body_lines:
+        if section_re.match(line) and current:
+            block = "\n".join(current).strip()
+            if block:
+                sections.append(block)
+            current = [line]
+        else:
+            current.append(line)
+
+    if current:
+        block = "\n".join(current).strip()
+        if block:
+            sections.append(block)
+
+    # Prepend date header to the first section
+    if sections and header:
+        sections[0] = header + "\n\n" + sections[0]
+
+    return [s for s in sections if s.strip()]
 
 
 def send_to_whatsapp(text: str):
-    """Send the summary to a WhatsApp group via Green API."""
+    """Send the summary to a WhatsApp group via Green API — one message per section."""
     if not GREEN_API_INSTANCE or not GREEN_API_TOKEN or not WHATSAPP_GROUP_ID:
         print("⚠️  WhatsApp credentials not set — skipping.")
         return
 
-    wa_text = slack_to_whatsapp(text)
-    chunks  = split_by_lines(wa_text, max_len=4000)
+    wa_text   = slack_to_whatsapp(text)
+    sections  = split_whatsapp_sections(wa_text)
 
-    url = (
+    api_url = (
         f"https://api.green-api.com"
         f"/waInstance{GREEN_API_INSTANCE}"
         f"/sendMessage/{GREEN_API_TOKEN}"
     )
 
-    for i, chunk in enumerate(chunks):
+    for i, section in enumerate(sections):
         resp = requests.post(
-            url,
-            json={"chatId": WHATSAPP_GROUP_ID, "message": chunk},
+            api_url,
+            json={"chatId": WHATSAPP_GROUP_ID, "message": section},
             timeout=15,
         )
         resp.raise_for_status()
-        if len(chunks) > 1 and i < len(chunks) - 1:
-            time.sleep(2)   # avoid rate-limiting between chunks
+        if i < len(sections) - 1:
+            time.sleep(2)   # small delay between messages
 
-    print("✅ Sent to WhatsApp")
+    print(f"✅ Sent to WhatsApp ({len(sections)} messages)")
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
