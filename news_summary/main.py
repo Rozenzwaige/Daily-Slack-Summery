@@ -61,12 +61,15 @@ def save_seen_articles(articles: list[dict]) -> None:
 
 # ─── Credentials (injected as GitHub Secrets / env vars) ─────────────────────
 
-SLACK_WEBHOOK_URL  = os.environ["SLACK_WEBHOOK_URL"]
-ANTHROPIC_API_KEY  = os.environ["ANTHROPIC_API_KEY"]
-SLACK_BOT_TOKEN    = os.environ.get("SLACK_BOT_TOKEN", "")
-NEWS_INPUTS_CHANNEL = os.environ.get("NEWS_INPUTS_CHANNEL", "")
-HAARETZ_COOKIES    = os.environ.get("HAARETZ_COOKIES", "")
-GLOBES_COOKIES     = os.environ.get("GLOBES_COOKIES", "")
+SLACK_WEBHOOK_URL    = os.environ["SLACK_WEBHOOK_URL"]
+ANTHROPIC_API_KEY    = os.environ["ANTHROPIC_API_KEY"]
+SLACK_BOT_TOKEN      = os.environ.get("SLACK_BOT_TOKEN", "")
+NEWS_INPUTS_CHANNEL  = os.environ.get("NEWS_INPUTS_CHANNEL", "")
+HAARETZ_COOKIES      = os.environ.get("HAARETZ_COOKIES", "")
+GLOBES_COOKIES       = os.environ.get("GLOBES_COOKIES", "")
+GREEN_API_INSTANCE   = os.environ.get("GREEN_API_INSTANCE", "")
+GREEN_API_TOKEN      = os.environ.get("GREEN_API_TOKEN", "")
+WHATSAPP_GROUP_ID    = os.environ.get("WHATSAPP_GROUP_ID", "")  # e.g. 972501234567-1234567890@g.us
 
 
 def _parse_cookies(cookie_str: str) -> dict:
@@ -714,6 +717,48 @@ def send_to_slack(text: str):
     print("✅ Sent to Slack")
 
 
+# ─── WhatsApp via Green API ───────────────────────────────────────────────────
+
+def slack_to_whatsapp(text: str) -> str:
+    """
+    Convert Slack mrkdwn to WhatsApp-compatible plain text.
+    <URL|display text>  →  display text (URL)
+    <URL>               →  URL
+    """
+    import re
+    text = re.sub(r"<(https?://[^|>]+)\|([^>]+)>", r"\2 (\1)", text)
+    text = re.sub(r"<(https?://[^>]+)>", r"\1", text)
+    return text
+
+
+def send_to_whatsapp(text: str):
+    """Send the summary to a WhatsApp group via Green API."""
+    if not GREEN_API_INSTANCE or not GREEN_API_TOKEN or not WHATSAPP_GROUP_ID:
+        print("⚠️  WhatsApp credentials not set — skipping.")
+        return
+
+    wa_text = slack_to_whatsapp(text)
+    chunks  = split_by_lines(wa_text, max_len=4000)
+
+    url = (
+        f"https://api.green-api.com"
+        f"/waInstance{GREEN_API_INSTANCE}"
+        f"/sendMessage/{GREEN_API_TOKEN}"
+    )
+
+    for i, chunk in enumerate(chunks):
+        resp = requests.post(
+            url,
+            json={"chatId": WHATSAPP_GROUP_ID, "message": chunk},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        if len(chunks) > 1 and i < len(chunks) - 1:
+            time.sleep(2)   # avoid rate-limiting between chunks
+
+    print("✅ Sent to WhatsApp")
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
@@ -750,6 +795,9 @@ def main():
 
     print("\n📤 Posting to Slack...")
     send_to_slack(summary)
+
+    print("\n📱 Posting to WhatsApp...")
+    send_to_whatsapp(summary)
 
     save_seen_articles(articles)
     print("\n✅ Done!\n")
