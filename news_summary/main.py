@@ -776,13 +776,19 @@ def split_whatsapp_sections(text: str) -> list[str]:
 
 
 def send_to_whatsapp(text: str):
-    """Send the summary to a WhatsApp group via Green API — one message per section."""
+    """
+    Send the summary to one or more WhatsApp groups via Green API.
+    WHATSAPP_GROUP_ID supports multiple groups separated by commas:
+        120363424225815504@g.us,120363999999999999@g.us
+    """
     if not GREEN_API_INSTANCE or not GREEN_API_TOKEN or not WHATSAPP_GROUP_ID:
         print("⚠️  WhatsApp credentials not set — skipping.")
         return
 
-    wa_text   = slack_to_whatsapp(text)
-    sections  = split_whatsapp_sections(wa_text)
+    group_ids = [gid.strip() for gid in WHATSAPP_GROUP_ID.split(",") if gid.strip()]
+
+    wa_text  = slack_to_whatsapp(text)
+    sections = split_whatsapp_sections(wa_text)
 
     api_url = (
         f"https://api.green-api.com"
@@ -790,17 +796,21 @@ def send_to_whatsapp(text: str):
         f"/sendMessage/{GREEN_API_TOKEN}"
     )
 
-    for i, section in enumerate(sections):
-        resp = requests.post(
-            api_url,
-            json={"chatId": WHATSAPP_GROUP_ID, "message": section},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        if i < len(sections) - 1:
-            time.sleep(2)   # small delay between messages
+    for group_id in group_ids:
+        print(f"   📱 Sending to {group_id}...")
+        for i, section in enumerate(sections):
+            resp = requests.post(
+                api_url,
+                json={"chatId": group_id, "message": section},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            if i < len(sections) - 1:
+                time.sleep(2)   # small delay between messages in same group
+        if group_ids.index(group_id) < len(group_ids) - 1:
+            time.sleep(3)       # slightly longer delay between groups
 
-    print(f"✅ Sent to WhatsApp ({len(sections)} messages)")
+    print(f"✅ Sent to WhatsApp ({len(group_ids)} groups, {len(sections)} messages each)")
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
