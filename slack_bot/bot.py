@@ -40,6 +40,13 @@ ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 app    = AsyncApp(token=SLACK_BOT_TOKEN)
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+# ─── Debug middleware — log every incoming payload ────────────────────────────
+@app.middleware
+async def log_all(body, next):
+    evt = body.get("event", {})
+    print(f"🔵 PAYLOAD type={body.get('type')} event_type={evt.get('type')} channel_type={evt.get('channel_type')}", flush=True)
+    await next()
+
 # Thread pool for running blocking I/O without blocking the event loop
 executor = ThreadPoolExecutor(max_workers=10)
 
