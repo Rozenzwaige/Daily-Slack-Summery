@@ -282,7 +282,7 @@ async def handle_home(event, client):
     )
 
 
-@app.event("message")
+@app.message()
 async def handle_dm(message, say, client):
     """Handle DMs sent directly to the bot."""
     print(f"📨 message event: channel_type={message.get('channel_type')} bot_id={message.get('bot_id')} subtype={message.get('subtype')} text={message.get('text','')[:60]}", flush=True)
