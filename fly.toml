@@ -1,11 +1,15 @@
-app = "itamar-news-bot"
-primary_region = "fra"
+# fly.toml — איתמר Slack bot (pure background worker, no HTTP)
+app = 'standing-togther'
+primary_region = 'fra'
 
 [build]
 
-# No HTTP service — this is a pure background worker (Socket Mode)
+# No http_service — bot uses Slack Socket Mode (WebSocket), not HTTP
+
+[restart]
+  policy = 'always'
 
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '256mb'
+  cpu_kind = 'shared'
   cpus = 1
