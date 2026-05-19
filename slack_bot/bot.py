@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 import anthropic
 import feedparser
 import requests
+from aiohttp import web
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 
@@ -350,10 +351,24 @@ async def handle_mention(event, say):
     await say("שלום! שלח לי *הודעה פרטית* ואשמח לסכם חדשות בשבילך 📰")
 
 
+# ─── Health check server (keeps Fly.io machine alive) ────────────────────────
+
+async def start_health_server():
+    """Minimal HTTP server so Fly.io doesn't stop the machine."""
+    health_app = web.Application()
+    health_app.router.add_get("/health", lambda r: web.Response(text="ok"))
+    runner = web.AppRunner(health_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+    print("🩺 Health server listening on :8080", flush=True)
+
+
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 async def main():
     print("🤖 איתמר bot starting...", flush=True)
+    await start_health_server()
     handler = AsyncSocketModeHandler(app, SLACK_APP_TOKEN)
     await handler.start_async()
 

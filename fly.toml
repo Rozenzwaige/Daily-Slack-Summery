@@ -1,10 +1,16 @@
-# fly.toml — איתמר Slack bot (pure background worker, no HTTP)
+# fly.toml — איתמר Slack bot
 app = 'standing-togther'
 primary_region = 'fra'
 
 [build]
 
-# No http_service — bot uses Slack Socket Mode (WebSocket), not HTTP
+# Health-check HTTP server keeps the machine alive (bot itself uses Socket Mode)
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 1
 
 [[restart]]
   policy = 'always'
