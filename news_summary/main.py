@@ -213,8 +213,13 @@ GOOGLE_NEWS_QUERIES = [
     "gig workers precarious labor",
     "socialist policy left-wing",
     "Bernie Sanders AOC progressive",
-    "Labour Podemos Syriza left-wing",
-    "Jacobin labor workers",
+    "Labour Podemos Sumar Syriza left-wing",
+    "Mamdani NYC workers economic justice",
+    "Jacobin labor workers socialist",
+    "Monthly Review socialist economy",
+    "New Left Review",
+    "Libération gauche travail",
+    "L'Humanité syndicat grève",
 ]
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -456,6 +461,8 @@ def collect_articles() -> list[dict]:
 
         ("Guardian Middle East", "https://www.theguardian.com/world/middleeast/rss"),
         ("NYT Middle East",      "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
+        ("NYT World",            "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
+        ("NYT Business",         "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
         ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
         # Wafa direct RSS returns 404 — using Google News instead
         ("Wafa",                 "https://news.google.com/rss/search?q=site:wafa.ps+when:1d&hl=en-US&gl=US&ceid=US:en"),
@@ -464,8 +471,10 @@ def collect_articles() -> list[dict]:
         ("Reuters",              "https://news.google.com/rss/search?q=site:reuters.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
         ("AP",                   "https://news.google.com/rss/search?q=site:apnews.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
         ("AFP",                  "https://news.google.com/rss/search?q=AFP+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
-        ("Washington Post",      "https://feeds.washingtonpost.com/rss/world"),
+        ("Washington Post",       "https://feeds.washingtonpost.com/rss/world"),
+        ("Washington Post Econ", "https://feeds.washingtonpost.com/rss/business"),
         ("Le Monde",             "https://www.lemonde.fr/en/rss/une.xml"),
+        ("Le Monde — Économie",  "https://www.lemonde.fr/economie/rss_full.xml"),
         # הארץ — Google News RSS (מתעדכן בזמן אמת)
         ("הארץ",                 "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he"),
         # דה מרקר — Google News RSS
@@ -478,12 +487,22 @@ def collect_articles() -> list[dict]:
         # וואלה RSS
         ("וואלה חדשות",          "https://rss.walla.co.il/feed/22"),
         ("וואלה כלכלה",          "https://rss.walla.co.il/feed/2"),
+        # Guardian — מדורים נוספים
+        ("Guardian — Economics", "https://www.theguardian.com/business/economics/rss"),
+        ("Guardian — Labor",     "https://www.theguardian.com/money/work-and-careers/rss"),
         # Jacobin — left-wing analysis, labor & social movements
         ("Jacobin",              "https://jacobin.com/feed/"),
+        # Monthly Review — socialist theory & economics
+        ("Monthly Review",       "https://monthlyreview.org/feed/"),
         # The Economist — economics & business (via Google News, paywalled direct RSS)
         ("The Economist",        "https://news.google.com/rss/search?q=site:economist.com+(labor+OR+workers+OR+economy+OR+inequality+OR+welfare)+when:1d&hl=en-US&gl=US&ceid=US:en"),
         # WSJ — economics & labor (via Google News, paywalled direct RSS)
         ("WSJ",                  "https://news.google.com/rss/search?q=site:wsj.com+(labor+OR+workers+OR+economy+OR+inequality+OR+union)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        # Libération & L'Humanité — French left press (via Google News in English)
+        ("Libération",           "https://news.google.com/rss/search?q=site:liberation.fr+(workers+OR+labor+OR+left+OR+social)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("L'Humanité",           "https://news.google.com/rss/search?q=site:humanite.fr+(workers+OR+labor+OR+left+OR+union)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        # New Left Review — via Google News
+        ("New Left Review",      "https://news.google.com/rss/search?q=site:newleftreview.org+when:30d&hl=en-US&gl=US&ceid=US:en"),
     ]
     for name, url in reliable_rss:
         batch = fetch_rss(name, url)
@@ -553,9 +572,9 @@ def collect_articles() -> list[dict]:
 def summarise(articles: list[dict]) -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    # Build article list with URLs (cap at 100 to keep costs low)
+    # Build article list with URLs (cap at 150 to allow richer left/labor coverage)
     lines = []
-    for i, a in enumerate(articles[:100], 1):
+    for i, a in enumerate(articles[:150], 1):
         line = f"{i}. [{a['source']}] {a['title']}"
         if a["link"]:
             line += f"\n   קישור: {a['link']}"
@@ -585,13 +604,14 @@ def summarise(articles: list[dict]) -> str:
 8. 🌐 *אזורי ובינלאומי* — ישראל-איראן, ישראל-לבנון, לחצים דיפלומטיים; כולל מדיניות סוציאלית/שמאלית דרמטית בעולם
 9. 🗞️ *קול פלסטיני* — מה מדווחים Wafa, Al-Jazeera, Ma'an
 
-⭐ *עדיפות נמוכה* — כלול רק אם יש חדשה בולטת וחשובה במיוחד:
-10. 🌹 *שמאל בעולם* — ברני סנדרס, AOC, ממדני, קורבין, מלנשון, מפלגות שמאל בספרד/בריטניה/צרפת/גרמניה/יוון; מדיניות פרוגרסיבית דרמטית
+⭐⭐ *עדיפות בינונית-גבוהה* — כלול תמיד אם יש תוכן, 1–3 נקודות:
+10. 🌹 *שמאל בעולם* — ברני סנדרס, AOC, זוהרן ממדני (NYC), קורבין, מלנשון, מפלגות שמאל בספרד/בריטניה/צרפת/גרמניה/יוון; מדיניות פרוגרסיבית; כתבות מ-Jacobin, Monthly Review, New Left Review, L'Humanité, Libération על מאבקי עובדים, הלאמה, זכויות סוציאליות — גם אם הן מחוץ לישראל
 
 *כללים מחייבים — קרא לפני הכל:*
 1. **סקציה ללא כתבות רלוונטיות ברשימה — אל תכתוב אותה בכלל.** אסור לכתוב "לא דווח", "אין חדשות", או כל ניסוח דומה. פשוט דלג לסקציה הבאה.
 2. כל נקודה: משפט אחד עד שניים, 2–4 נקודות לסקציה.
 3. אל תמציא מידע שאינו מופיע ברשימה.
+3א. כתבות בינלאומיות על מאבקי עובדים, איגודים, שביתות, זכויות סוציאליות — יכנסו תחת 💰 *כלכלה* או 🌹 *שמאל בעולם* לפי ההקשר. אל תדלג עליהן.
 4. שפה: עברית תקנית ופשוטה.
 5. *חובה:* בסוף כל נקודה הוסף קישור למקור בפורמט Slack: `<URL|שם_מקור>`
    לדוגמה: `• ישראל הודיעה על הפסקת אש. <https://www.ynet.co.il/article/123|ynet>`
@@ -631,7 +651,7 @@ def summarise(articles: list[dict]) -> str:
 *🌐 אזורי ובינלאומי*
 • [רק אם יש כתבות]
 
-_מקורות: ynet, הארץ, וואלה, N12, שיחה מקומית, גלובס, דה מרקר, Guardian, NYT, Washington Post, Reuters, AP, AFP, Le Monde, Al-Jazeera, Wafa ועוד_
+_מקורות: ynet, הארץ, וואלה, N12, שיחה מקומית, גלובס, דה מרקר, Guardian, NYT, Washington Post, Reuters, AP, AFP, Le Monde, Al-Jazeera, Wafa, Jacobin, Monthly Review, New Left Review, L'Humanité, Libération ועוד_
 
 ---
 כתבות לסיכום:
