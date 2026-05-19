@@ -13,10 +13,14 @@ Example queries:
 
 import asyncio
 import json
+import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+
+# Show slack-bolt connection logs
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
 
 import anthropic
 import feedparser
