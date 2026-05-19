@@ -6,7 +6,7 @@ primary_region = 'fra'
 
 # No http_service — bot uses Slack Socket Mode (WebSocket), not HTTP
 
-[restart]
+[[restart]]
   policy = 'always'
 
 [[vm]]
