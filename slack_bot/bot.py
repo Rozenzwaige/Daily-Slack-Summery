@@ -281,6 +281,7 @@ async def handle_home(event, client):
 @app.event("message")
 async def handle_dm(message, say, client):
     """Handle DMs sent directly to the bot."""
+    print(f"📨 message event: channel_type={message.get('channel_type')} bot_id={message.get('bot_id')} subtype={message.get('subtype')} text={message.get('text','')[:60]}", flush=True)
     # Ignore bot messages and non-DM channels
     if message.get("bot_id") or message.get("subtype"):
         return
@@ -369,8 +370,12 @@ async def start_health_server():
 async def main():
     print("🤖 איתמר bot starting...", flush=True)
     await start_health_server()
+    print(f"🔑 SLACK_APP_TOKEN prefix: {SLACK_APP_TOKEN[:12]}...", flush=True)
+    print(f"🔑 SLACK_BOT_TOKEN prefix: {SLACK_BOT_TOKEN[:12]}...", flush=True)
     handler = AsyncSocketModeHandler(app, SLACK_APP_TOKEN)
+    print("🔌 Connecting to Slack via Socket Mode...", flush=True)
     await handler.start_async()
+    print("✅ Socket Mode connected!", flush=True)
 
 
 if __name__ == "__main__":
