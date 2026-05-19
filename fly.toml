@@ -1,0 +1,11 @@
+app = "itamar-news-bot"
+primary_region = "fra"
+
+[build]
+
+# No HTTP service — this is a pure background worker (Socket Mode)
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
