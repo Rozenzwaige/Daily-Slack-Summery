@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>לוח אירועים — רוזה</title>
+<style>
+/* ── Design tokens ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:      #15202b;
+  --bg2:     #1e2a36;
+  --bg3:     #253341;
+  --border:  #3a2a2a;
+  --text:    #e7e9ea;
+  --muted:   #8b98a5;
+  --accent:  #cc2318;
+  --blue:    #1d9bf0;
+  --green:   #00ba7c;
+  --red:     #f4212e;
+  --amber:   #f59e0b;
+  --purple:  #a855f7;
+  --orange:  #f97316;
+
+  --c-knesset:   #1d9bf0;
+  --c-gov:       #f59e0b;
+  --c-courts:    #cc2318;
+  --c-wiki:      #00ba7c;
+  --c-wch:       #a855f7;
+  --c-socialist: #f97316;
+  --c-personal:  #e879a0;
+}
+
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  direction: rtl;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Loading ──────────────────────────────────────────────────────────────── */
+#loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 14px;
+  color: var(--muted);
+  font-size: .88rem;
+}
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.hdr-title { font-size: .95rem; color: var(--accent); font-weight: 700; }
+
+/* "+" add button — prominent, accent-colored */
+#add-btn {
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  width: 28px; height: 28px;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: opacity .12s;
+}
+#add-btn:hover { opacity: .82; }
+
+.hdr-spacer { flex: 1; }
+
+.view-pills { display: flex; gap: 4px; }
+.view-pill {
+  padding: 3px 11px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: .77rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.view-pill:hover  { border-color: var(--accent); color: var(--accent); }
+.view-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+.nav-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  width: 28px; height: 28px;
+  cursor: pointer;
+  font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .12s;
+  flex-shrink: 0;
+}
+.nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.nav-btn[hidden] { display: none; }
+
+.hdr-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--muted);
+  padding: 4px 9px;
+  cursor: pointer;
+  font-size: .73rem;
+  font-family: inherit;
+  transition: all .12s;
+  flex-shrink: 0;
+}
+.hdr-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Source filter bar ───────────────────────────────────────────────────── */
+#src-bar {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 11px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.src-pill {
+  padding: 3px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: .76rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+  white-space: nowrap;
+  user-select: none;
+}
+.src-pill:hover { opacity: .82; }
+.src-pill[data-src="כנסת"].active          { background: var(--c-knesset);   border-color: var(--c-knesset);   color: #fff; font-weight: 600; }
+.src-pill[data-src="ממשלה"].active         { background: var(--c-gov);        border-color: var(--c-gov);        color: #fff; font-weight: 600; }
+.src-pill[data-src="בתי משפט"].active      { background: var(--c-courts);     border-color: var(--c-courts);     color: #fff; font-weight: 600; }
+.src-pill[data-src="ויקיפדיה"].active      { background: var(--c-wiki);       border-color: var(--c-wiki);       color: #fff; font-weight: 600; }
+.src-pill[data-src="WCH"].active           { background: var(--c-wch);        border-color: var(--c-wch);        color: #fff; font-weight: 600; }
+.src-pill[data-src="לוח השנה הסוציאליסטי"].active { background: var(--c-socialist); border-color: var(--c-socialist); color: #fff; font-weight: 600; }
+.src-pill[data-src="אירועים"].active       { background: var(--c-personal);   border-color: var(--c-personal);   color: #fff; font-weight: 600; }
+
+/* ── Calendar area ───────────────────────────────────────────────────────── */
+#cal-area {
+  flex: 1;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 1px;
+  background: var(--border);
+  min-height: 0;
+}
+#cal-area::-webkit-scrollbar { height: 3px; }
+#cal-area::-webkit-scrollbar-thumb { background: var(--border); }
+
+/* ── Day column ──────────────────────────────────────────────────────────── */
+.day-col {
+  min-width: 185px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.day-col.today { background: rgba(29,155,240,.03); }
+
+.day-col-hdr {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 9px 5px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.day-name { font-size: .83rem; font-weight: 700; }
+.day-date { font-size: .72rem; color: var(--muted); }
+.day-col.today .day-name { color: var(--accent); }
+.day-col.today .day-date { color: var(--accent); opacity: .75; }
+
+/* ── All-day section (compact chips, Google-Calendar style) ──────────────── */
+.allday-section {
+  flex-shrink: 0;
+  padding: 4px 5px 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.008);
+}
+.allday-section:empty { padding: 0; border-bottom: none; }
+
+.allday-chip {
+  font-size: .7rem;
+  padding: 2px 7px;
+  border-radius: 3px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+  cursor: default;
+}
+.allday-chip.has-link { cursor: pointer; }
+.allday-chip.has-link:hover { opacity: .82; filter: brightness(1.1); }
+/* chip colors by source */
+.allday-chip[data-src="ויקיפדיה"]                { background: var(--c-wiki); }
+.allday-chip[data-src="WCH"]                      { background: var(--c-wch); }
+.allday-chip[data-src="לוח השנה הסוציאליסטי"]    { background: var(--c-socialist); }
+.allday-chip[data-src="אירועים"]                  { background: var(--c-personal); }
+/* fallback */
+.allday-chip:not([data-src]) { background: var(--muted); }
+
+/* collapsed: hide chips beyond the first 3 */
+.allday-chip.extra-hidden { display: none; }
+
+.allday-more-btn {
+  font-size: .68rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 1px 7px 2px;
+  background: transparent;
+  border: none;
+  text-align: right;
+  font-family: inherit;
+  line-height: 1.6;
+}
+.allday-more-btn:hover { color: var(--text); }
+
+/* ── Timed section ───────────────────────────────────────────────────────── */
+.timed-section {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px 5px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+.timed-section::-webkit-scrollbar { width: 2px; }
+.timed-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 1px; }
+.empty-day {
+  color: var(--muted);
+  font-size: .74rem;
+  text-align: center;
+  padding: 16px 6px;
+  opacity: .55;
+}
+
+/* ── Timed event card ────────────────────────────────────────────────────── */
+.ev-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-top: 2px solid transparent;
+  border-radius: 7px;
+  padding: 6px 8px;
+  transition: border-color .12s;
+}
+/* top border accent by source */
+.ev-card[data-src="כנסת"]          { border-top-color: var(--c-knesset); }
+.ev-card[data-src="ממשלה"]         { border-top-color: var(--c-gov); }
+.ev-card[data-src="בתי משפט"]      { border-top-color: var(--c-courts); }
+.ev-card[data-src="אירועים"]       { border-top-color: var(--c-personal); }
+.ev-card:hover { border-color: var(--muted); }
+
+.ev-time {
+  font-size: .74rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+.ev-title {
+  font-size: .81rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+  margin-bottom: 3px;
+}
+.ev-title a { color: inherit; text-decoration: none; }
+.ev-title a:hover { color: var(--accent); text-decoration: underline; }
+.ev-desc {
+  font-size: .72rem;
+  color: var(--muted);
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Add-event modal ─────────────────────────────────────────────────────── */
+#modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+#modal-overlay.open { display: flex; }
+#add-modal {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(440px, 95vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-hdr-title { font-weight: 700; font-size: .95rem; color: var(--accent); }
+.modal-close {
+  background: transparent; border: none;
+  color: var(--muted); font-size: 1rem;
+  cursor: pointer; padding: 3px 7px;
+  border-radius: 4px; transition: color .12s;
+}
+.modal-close:hover { color: var(--red); }
+
+.modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
+.modal-field { display: flex; flex-direction: column; gap: 4px; }
+.modal-field label { font-size: .76rem; color: var(--muted); }
+.modal-field input,
+.modal-field select,
+.modal-field textarea {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  padding: 8px 11px;
+  font-size: .86rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .12s;
+}
+.modal-field input[type="date"],
+.modal-field input[type="time"] { direction: ltr; text-align: right; }
+.modal-field input:focus,
+.modal-field select:focus,
+.modal-field textarea:focus { border-color: var(--accent); }
+.modal-field input::placeholder,
+.modal-field textarea::placeholder { color: var(--muted); }
+.modal-field textarea { min-height: 70px; resize: vertical; direction: rtl; }
+
+.modal-ftr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+  flex-direction: row-reverse;
+}
+#modal-err { flex: 1; font-size: .76rem; color: var(--red); min-height: 16px; }
+.btn-save {
+  background: var(--accent); border: none; border-radius: 7px;
+  color: #fff; padding: 8px 22px; font-size: .86rem;
+  cursor: pointer; font-family: inherit; font-weight: 700;
+  transition: opacity .12s;
+}
+.btn-save:hover { opacity: .84; }
+.btn-save:disabled { opacity: .45; cursor: default; }
+.btn-cancel {
+  background: transparent; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--muted); padding: 8px 16px; font-size: .84rem;
+  cursor: pointer; font-family: inherit; transition: all .12s;
+}
+.btn-cancel:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Scrollbar global ────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="loading-screen"><div class="spinner"></div><span>טוען אירועים...</span></div>
+
+<div id="app" style="display:none; flex-direction:column; height:100vh; overflow:hidden;">
+
+  <!-- Header -->
+  <header>
+    <span class="hdr-title">📅 לוח אירועים</span>
+    <button id="add-btn" onclick="openAddModal()" title="הוסף אירוע">+</button>
+    <div class="hdr-spacer"></div>
+    <button class="nav-btn" id="btn-prev" hidden onclick="navigate(-1)" title="קודם">›</button>
+    <div class="view-pills">
+      <button class="view-pill"        data-days="1" onclick="setView(1)">יום</button>
+      <button class="view-pill"        data-days="2" onclick="setView(2)">יומיים</button>
+      <button class="view-pill"        data-days="3" onclick="setView(3)">3 ימים</button>
+      <button class="view-pill active" data-days="7" onclick="setView(7)">שבוע</button>
+    </div>
+    <button class="nav-btn" id="btn-next" hidden onclick="navigate(1)" title="הבא">‹</button>
+    <button class="hdr-btn" id="refresh-btn" onclick="refreshData()">⟳ רענן</button>
+  </header>
+
+  <!-- Source filter bar -->
+  <div id="src-bar">
+    <button class="src-pill active" data-src="כנסת"                   onclick="toggleSrc(this)">🏛 כנסת</button>
+    <button class="src-pill active" data-src="ממשלה"                  onclick="toggleSrc(this)">🏛 ממשלה</button>
+    <button class="src-pill active" data-src="בתי משפט"               onclick="toggleSrc(this)">⚖️ בתי משפט</button>
+    <button class="src-pill active" data-src="ויקיפדיה"               onclick="toggleSrc(this)">📖 ויקיפדיה</button>
+    <button class="src-pill active" data-src="WCH"                    onclick="toggleSrc(this)">🌍 WCH</button>
+    <button class="src-pill active" data-src="לוח השנה הסוציאליסטי"  onclick="toggleSrc(this)">✊ סוציאליסטי</button>
+    <button class="src-pill active" data-src="אירועים"                onclick="toggleSrc(this)">📌 אירועים אישיים</button>
+  </div>
+
+  <!-- Calendar columns -->
+  <div id="cal-area"></div>
+
+</div>
+
+<!-- Add-event modal -->
+<div id="modal-overlay" onclick="overlayClick(event)">
+  <div id="add-modal">
+    <div class="modal-hdr">
+      <span class="modal-hdr-title">✚ הוסף אירוע</span>
+      <button class="modal-close" onclick="closeAddModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>כותרת *</label>
+        <input id="m-title" type="text" placeholder="כותרת האירוע">
+      </div>
+      <div class="modal-field">
+        <label>תאריך *</label>
+        <input id="m-date" type="date">
+      </div>
+      <div class="modal-field">
+        <label>שעת התחלה (אופציונלי)</label>
+        <input id="m-time" type="time">
+      </div>
+      <div class="modal-field">
+        <label>תיאור</label>
+        <textarea id="m-desc" placeholder="פרטים נוספים..."></textarea>
+      </div>
+      <div class="modal-field">
+        <label>לוח</label>
+        <select id="m-cal" onchange="onCalChange()">
+          <option value="אירועים">📌 אירועים אישיים</option>
+          <option value="כנסת">🏛 כנסת</option>
+          <option value="ממשלה">🏛 ממשלה</option>
+          <option value="בתי משפט">⚖️ בתי משפט</option>
+          <option value="__new__">＋ לוח חדש...</option>
+        </select>
+      </div>
+      <div class="modal-field" id="m-newcal-wrap" style="display:none">
+        <label>שם הלוח החדש</label>
+        <input id="m-newcal" type="text" placeholder="שם הלוח...">
+      </div>
+      <div class="modal-field">
+        <label>קישור</label>
+        <input id="m-link" type="url" placeholder="https://...">
+      </div>
+    </div>
+    <div class="modal-ftr">
+      <button class="btn-save" id="modal-save-btn" onclick="saveEvent()">שמור</button>
+      <button class="btn-cancel" onclick="closeAddModal()">ביטול</button>
+      <div id="modal-err"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────────
+var _data       = {};
+var _daysView   = 7;
+var _offset     = 0;
+var _activeSrcs = new Set([
+  'כנסת','ממשלה','בתי משפט','ויקיפדיה','WCH','לוח השנה הסוציאליסטי','אירועים'
+]);
+
+var HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+var FETCH_DAYS = 21;
+var ALLDAY_COLLAPSE = 3;   // max chips shown before "show more"
+
+var BUILTIN_SRCS = new Set(['כנסת','ממשלה','בתי משפט','ויקיפדיה','WCH','לוח השנה הסוציאליסטי','אירועים']);
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+(function boot() {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      _data = data;
+      _addCustomPillsFromData(data);
+      document.getElementById('loading-screen').style.display = 'none';
+      var app = document.getElementById('app');
+      app.style.display = 'flex';
+      render();
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('loading-screen').innerHTML =
+        '<div style="color:var(--red);padding:24px;text-align:center">⚠ שגיאה בטעינה:<br><small>' +
+        esc(err.message || String(err)) + '</small></div>';
+    })
+    .getCalendarData(todayStr(), FETCH_DAYS);
+})();
+
+// ── View controls ──────────────────────────────────────────────────────────────
+function setView(days) {
+  _daysView = days;
+  _offset   = 0;
+  document.querySelectorAll('.view-pill').forEach(function(p) {
+    p.classList.toggle('active', +p.dataset.days === days);
+  });
+  updateNavBtns();
+  render();
+}
+
+function navigate(dir) {
+  _offset += dir * _daysView;
+  _offset  = Math.max(0, Math.min(_offset, FETCH_DAYS - _daysView));
+  updateNavBtns();
+  render();
+}
+
+function updateNavBtns() {
+  var showNav = _daysView < 7;
+  document.getElementById('btn-prev').hidden = !showNav || _offset <= 0;
+  document.getElementById('btn-next').hidden = !showNav || _offset + _daysView >= FETCH_DAYS;
+}
+
+function toggleSrc(btn) {
+  var src = btn.dataset.src;
+  if (_activeSrcs.has(src)) { _activeSrcs.delete(src); btn.classList.remove('active'); }
+  else                       { _activeSrcs.add(src);    btn.classList.add('active'); }
+  render();
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+function render() {
+  var area  = document.getElementById('cal-area');
+  area.innerHTML = '';
+  var today = new Date(); today.setHours(0,0,0,0);
+
+  for (var i = 0; i < _daysView; i++) {
+    var d = new Date(today);
+    d.setDate(today.getDate() + _offset + i);
+    var ds     = fmtDate(d);
+    var isToday = _offset + i === 0;
+    var raw    = _data[ds] || { allDay: [], timed: [] };
+
+    var allDay = raw.allDay.filter(function(e) { return _activeSrcs.has(e.source); });
+    var timed  = raw.timed.filter(function(e)  { return _activeSrcs.has(e.source); });
+
+    area.appendChild(buildDayCol(d, isToday, allDay, timed));
+  }
+}
+
+// ── Day column ─────────────────────────────────────────────────────────────────
+function buildDayCol(d, isToday, allDay, timed) {
+  var col = el('div', 'day-col' + (isToday ? ' today' : ''));
+
+  // Header
+  var hdr = el('div', 'day-col-hdr');
+  hdr.innerHTML =
+    '<span class="day-name">' + HE_DAYS[d.getDay()] + '</span>' +
+    '<span class="day-date">' + p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '</span>';
+  col.appendChild(hdr);
+
+  // All-day chips (top section)
+  if (allDay.length) {
+    col.appendChild(buildAlldaySection(allDay));
+  }
+
+  // Timed events
+  var timedSec = el('div', 'timed-section');
+  if (timed.length) {
+    timed.forEach(function(ev) { timedSec.appendChild(buildTimedCard(ev)); });
+  } else if (!allDay.length) {
+    timedSec.innerHTML = '<div class="empty-day">אין אירועים</div>';
+  }
+  col.appendChild(timedSec);
+
+  return col;
+}
+
+// ── All-day section: compact colored chips, expand if > ALLDAY_COLLAPSE ───────
+function buildAlldaySection(events) {
+  var sec = el('div', 'allday-section');
+  var extra = events.length - ALLDAY_COLLAPSE;
+
+  events.forEach(function(ev, idx) {
+    var chip = el('div', 'allday-chip' + (idx >= ALLDAY_COLLAPSE ? ' extra-hidden' : ''));
+    chip.dataset.src = ev.source;
+    if (ev.link) {
+      chip.classList.add('has-link');
+      chip.title = ev.title;
+      chip.onclick = function() { window.open(ev.link, '_blank', 'noopener'); };
+    }
+    chip.textContent = ev.title;
+    sec.appendChild(chip);
+  });
+
+  if (extra > 0) {
+    var btn = el('button', 'allday-more-btn');
+    btn.textContent = 'עוד ' + extra + ' אירועים';
+    btn.onclick = function() {
+      var expanded = btn.textContent === 'צמצם';
+      sec.querySelectorAll('.allday-chip').forEach(function(c, i) {
+        if (i >= ALLDAY_COLLAPSE) c.classList.toggle('extra-hidden', expanded);
+      });
+      btn.textContent = expanded ? 'עוד ' + extra + ' אירועים' : 'צמצם';
+    };
+    sec.appendChild(btn);
+  }
+
+  return sec;
+}
+
+// ── Timed event card ───────────────────────────────────────────────────────────
+function buildTimedCard(ev) {
+  var card = el('div', 'ev-card');
+  card.dataset.src = ev.source;
+
+  var timeHtml  = ev.time ? '<div class="ev-time">' + esc(ev.time) + '</div>' : '';
+  var titleInner = ev.link
+    ? '<a href="' + esc(ev.link) + '" target="_blank" rel="noopener">' + esc(ev.title) + '</a>'
+    : esc(ev.title);
+  var descHtml  = ev.desc ? '<div class="ev-desc">' + esc(ev.desc) + '</div>' : '';
+
+  card.innerHTML = timeHtml +
+    '<div class="ev-title">' + titleInner + '</div>' +
+    descHtml;
+
+  return card;
+}
+
+// ── Refresh ────────────────────────────────────────────────────────────────────
+function refreshData() {
+  var btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ טוען...';
+  google.script.run
+    .withSuccessHandler(function(data) {
+      _data = data;
+      _addCustomPillsFromData(data);
+      render();
+      btn.disabled = false;
+      btn.textContent = '⟳ רענן';
+    })
+    .withFailureHandler(function() {
+      btn.disabled = false;
+      btn.textContent = '⟳ רענן';
+    })
+    .getCalendarData(todayStr(), FETCH_DAYS);
+}
+
+// ── Custom calendar pills ───────────────────────────────────────────────────────
+function _addCustomPillsFromData(data) {
+  Object.values(data).forEach(function(day) {
+    [].concat(day.allDay || [], day.timed || []).forEach(function(ev) {
+      if (!BUILTIN_SRCS.has(ev.source)) ensureSourcePill(ev.source);
+    });
+  });
+}
+
+function ensureSourcePill(src) {
+  if (document.querySelector('.src-pill[data-src="' + src + '"]')) return;
+  var pill = el('button', 'src-pill active');
+  pill.dataset.src = src;
+  pill.textContent = '📌 ' + src;
+  pill.onclick = function() { toggleSrc(pill); };
+  _activeSrcs.add(src);
+  document.getElementById('src-bar').appendChild(pill);
+  // Also add to modal dropdown
+  _addCalOption(src);
+}
+
+function _addCalOption(src) {
+  var sel = document.getElementById('m-cal');
+  if (!sel || sel.querySelector('[value="' + src + '"]')) return;
+  var opt = document.createElement('option');
+  opt.value = src;
+  opt.textContent = '📌 ' + src;
+  opt.dataset.custom = '1';
+  sel.insertBefore(opt, sel.querySelector('[value="__new__"]'));
+}
+
+// ── Add-event modal ────────────────────────────────────────────────────────────
+function openAddModal(prefillDate) {
+  document.getElementById('m-title').value = '';
+  document.getElementById('m-date').value  = prefillDate || todayHtmlDate();
+  document.getElementById('m-time').value  = '';
+  document.getElementById('m-desc').value  = '';
+  document.getElementById('m-link').value  = '';
+  document.getElementById('m-cal').value   = 'אירועים';
+  document.getElementById('m-newcal-wrap').style.display = 'none';
+  document.getElementById('m-newcal').value = '';
+  document.getElementById('modal-err').textContent = '';
+  document.getElementById('modal-save-btn').disabled = false;
+  document.getElementById('modal-save-btn').textContent = 'שמור';
+  document.getElementById('modal-overlay').classList.add('open');
+  setTimeout(function() { document.getElementById('m-title').focus(); }, 60);
+}
+
+function onCalChange() {
+  var isNew = document.getElementById('m-cal').value === '__new__';
+  document.getElementById('m-newcal-wrap').style.display = isNew ? '' : 'none';
+  if (isNew) setTimeout(function() { document.getElementById('m-newcal').focus(); }, 30);
+}
+
+function closeAddModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function overlayClick(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeAddModal();
+}
+
+function saveEvent() {
+  var title   = document.getElementById('m-title').value.trim();
+  var date    = document.getElementById('m-date').value;
+  var time    = document.getElementById('m-time').value;
+  var desc    = document.getElementById('m-desc').value.trim();
+  var link    = document.getElementById('m-link').value.trim();
+  var calSel  = document.getElementById('m-cal').value;
+  var calNew  = document.getElementById('m-newcal').value.trim();
+  var calendar = (calSel === '__new__') ? calNew : calSel;
+  var errEl   = document.getElementById('modal-err');
+  var btn     = document.getElementById('modal-save-btn');
+
+  if (!title)    { errEl.textContent = 'כותרת היא שדה חובה'; return; }
+  if (!date)     { errEl.textContent = 'תאריך הוא שדה חובה'; return; }
+  if (!calendar) { errEl.textContent = 'יש לבחור לוח או להזין שם לוח חדש'; return; }
+  errEl.textContent = '';
+
+  // Convert HTML date "YYYY-MM-DD" → "DD/MM/YYYY"
+  var dp = date.split('-');
+  var sheetDate = dp[2] + '/' + dp[1] + '/' + dp[0];
+
+  btn.disabled = true;
+  btn.textContent = 'שומר...';
+
+  google.script.run
+    .withSuccessHandler(function() {
+      ensureSourcePill(calendar);
+      if (!_data[sheetDate]) _data[sheetDate] = { allDay: [], timed: [] };
+      var item = { source: calendar, time: time, title: title, desc: desc, link: link };
+      if (time) {
+        _data[sheetDate].timed.push(item);
+        _data[sheetDate].timed.sort(function(a,b) {
+          return (a.time||'99:99') < (b.time||'99:99') ? -1 : 1;
+        });
+      } else {
+        _data[sheetDate].allDay.push(item);
+      }
+      closeAddModal();
+      render();
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'שמור';
+      errEl.textContent = err.message || 'שגיאה בשמירה';
+    })
+    .addEvent({ date: sheetDate, time: time, title: title, desc: desc, link: link, calendar: calendar });
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+function todayStr() {
+  var d = new Date();
+  return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+function todayHtmlDate() {
+  var d = new Date();
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+}
+function fmtDate(d) {
+  return p2(d.getDate()) + '/' + p2(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+function p2(n)  { return n < 10 ? '0' + n : String(n); }
+function el(tag, cls) { var e = document.createElement(tag); if (cls) e.className = cls; return e; }
+function esc(s) {
+  return String(s||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Close modal on Escape
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeAddModal();
+});
+</script>
+</body>
+</html>

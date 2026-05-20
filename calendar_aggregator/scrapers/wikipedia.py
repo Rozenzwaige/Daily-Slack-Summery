@@ -1,17 +1,18 @@
-"""Hebrew Wikipedia 'on this day' scraper.
+"""Hebrew Wikipedia — daily holidays and observances.
 
-For each of the next DAYS_AHEAD days, fetches the Hebrew Wikipedia page for that
-date and extracts two sections:
+For each of the next DAYS_AHEAD days, fetches the Hebrew Wikipedia page for
+that date and extracts the section:
 
-  • אירועים היסטוריים ביום זה  — events that happened on this date (with year)
-  • חגים ואירועים החלים ביום זה — annual observances, filtered to remove
-                                   foreign/irrelevant holidays
+  חגים ואירועים החלים ביום זה
+
+Each item becomes one row:
+  A  DD/MM/YYYY   (current year — the event repeats annually)
+  B  (empty)
+  C  item text exactly as it appears on the page
+  D  first paragraph of the linked Wikipedia article (if the item has a link)
+  E  link to the Wikipedia article (if present)
 
 Wikipedia URL format:  https://he.wikipedia.org/wiki/{day}_ב{month_heb}
-Example:               https://he.wikipedia.org/wiki/10_במאי  (10 May)
-
-The pages use a modern <section> structure where each thematic block is wrapped
-in a <section> element containing its <h2> heading and item <ul>.
 """
 
 import re
@@ -33,32 +34,6 @@ _HEADERS = {
     "Accept-Language": "he-IL,he;q=0.9",
 }
 
-# Patterns that mark a holiday as non-Israeli / not relevant.
-# Matched case-insensitively against the full item text.
-_SKIP_PATTERNS = [
-    r"ראש השנה האזרחית",
-    r"חג מילת ישו",
-    r"קוואנזה",
-    r"יום נחלת הכלל",
-    r"שחרור קובה",
-    r"יום העצמאות של (?!ישראל)",   # foreign independence days (keep Israel's)
-    r"יום הרפובליקה של",
-    r"יום הלאומי של (?!ישראל)",
-    r"יום המדינה של (?!ישראל)",
-    r"יום ההולדת של המלך",
-    r"חג לאומי של",
-    r"חג לאומי ב",
-    r"ראש השנה (?:הסיני|הפרסי|הוייטנאמי|ה?ה?הינדי)",
-    r"חג ה(?:מולד|עלייה לשמים|תחייה|פנטקוסטה|אפיפניה|קורפוס)",   # Christian
-    r"רמדאן|עיד אל|מוחרם|אשורא|מילאד",                             # Islamic
-    r"דיואלי|הולי|ויסאק|נוורוז",                                     # Other
-]
-_SKIP_RE = [re.compile(p) for p in _SKIP_PATTERNS]
-
-
-def _should_skip(text: str) -> bool:
-    return any(r.search(text) for r in _SKIP_RE)
-
 
 def _abs_link(tag) -> str:
     if not tag:
@@ -66,11 +41,31 @@ def _abs_link(tag) -> str:
     href = tag.get("href", "")
     if href.startswith("http"):
         return href
-    if href.startswith("//"):          # protocol-relative
+    if href.startswith("//"):
         return "https:" + href
     if href.startswith("/"):
         return "https://he.wikipedia.org" + href
     return ""
+
+
+def _fetch_article_intro(url: str) -> str:
+    """Return the first non-empty paragraph from a Wikipedia article."""
+    if not url or "wikipedia.org" not in url:
+        return ""
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=10)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+        content = soup.find("div", class_="mw-parser-output")
+        if not content:
+            return ""
+        for p in content.find_all("p", recursive=False):
+            text = re.sub(r"\s+", " ", p.get_text(" ", strip=True))
+            if len(text) > 30:
+                return text[:400]
+        return ""
+    except Exception:
+        return ""
 
 
 def _fetch_day(d: date) -> list[list]:
@@ -86,24 +81,30 @@ def _fetch_day(d: date) -> list[list]:
         if not content:
             return rows
 
-        # Modern Wikipedia wraps each thematic block in a <section> element.
-        # Fall back to flat h2/ul scan for older page structures.
         sections = content.find_all("section", recursive=False)
 
         if sections:
             for section in sections:
                 heading_el = section.find(["h2", "h3"])
                 heading = heading_el.get_text(" ", strip=True) if heading_el else ""
-                _process_section(heading, section, date_str, rows)
+                if re.search(r"חגים", heading):
+                    # Iterate direct children; stop at <hr> (which separates
+                    # the holiday list from the day-navigation links below it)
+                    for child in section.children:
+                        tag = getattr(child, "name", None)
+                        if tag == "hr":
+                            break
+                        if tag == "ul":
+                            _extract_items(child, date_str, rows)
         else:
             # Flat layout: h2/h3 siblings followed by ul siblings
-            current = ""
+            in_holidays = False
             for el in content.children:
                 name = getattr(el, "name", None)
                 if name in ("h2", "h3"):
-                    current = el.get_text(" ", strip=True)
-                elif name == "ul" and current:
-                    _process_section(current, el, date_str, rows)
+                    in_holidays = bool(re.search(r"חגים", el.get_text(" ", strip=True)))
+                elif name == "ul" and in_holidays:
+                    _extract_items(el, date_str, rows)
 
     except Exception as e:
         print(f"[wikipedia] {date_str} error: {e}")
@@ -111,24 +112,18 @@ def _fetch_day(d: date) -> list[list]:
     return rows
 
 
-def _process_section(heading: str, container, date_str: str, rows: list):
-    """Parse items from a section and append matching rows."""
-    if re.search(r"אירועים", heading):
-        for li in container.find_all("li"):
-            text = li.get_text(" ", strip=True)
-            if not text:
-                continue
-            year_m = re.match(r"^(\d{1,4})\s*[–—-]\s*", text)
-            year = year_m.group(1) if year_m else ""
-            label = f"אירוע היסטורי ({year})" if year else "אירוע היסטורי"
-            rows.append([date_str, "", label, text, _abs_link(li.find("a", href=True))])
-
-    elif re.search(r"חגים", heading):
-        for li in container.find_all("li"):
-            text = li.get_text(" ", strip=True)
-            if not text or _should_skip(text):
-                continue
-            rows.append([date_str, "", "חג / אירוע שנתי", text, _abs_link(li.find("a", href=True))])
+def _extract_items(container, date_str: str, rows: list):
+    for li in container.find_all("li"):
+        text = li.get_text(" ", strip=True)
+        if not text:
+            continue
+        link_tag = li.find("a", href=True)
+        link = _abs_link(link_tag)
+        description = ""
+        if link:
+            description = _fetch_article_intro(link)
+            time.sleep(0.5)  # be polite between article fetches
+        rows.append([date_str, "", text, description, link])
 
 
 def get_events(days_ahead: int = 7) -> list[list]:
@@ -140,7 +135,7 @@ def get_events(days_ahead: int = 7) -> list[list]:
         rows.extend(day_rows)
         print(f"[wikipedia] {d.strftime('%d/%m/%Y')}: {len(day_rows)} items")
         if i < days_ahead - 1:
-            time.sleep(1)   # be polite to Wikipedia's servers
+            time.sleep(1)
 
     print(f"[wikipedia] total {len(rows)} items")
     return rows

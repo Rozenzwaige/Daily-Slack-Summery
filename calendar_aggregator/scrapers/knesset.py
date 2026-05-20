@@ -92,6 +92,33 @@ def _fetch(table: str, extra_params: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Agenda items (KNS_CmtSessionItem)
+# ---------------------------------------------------------------------------
+
+def _fetch_agenda_items(session_ids: list[int]) -> dict[int, list[str]]:
+    """Return {CommitteeSessionID: [topic, ...]} for the given session IDs."""
+    if not session_ids:
+        return {}
+    # Build filter in chunks to avoid URL length limits
+    CHUNK = 50
+    result: dict[int, list[str]] = {}
+    for i in range(0, len(session_ids), CHUNK):
+        chunk = session_ids[i : i + CHUNK]
+        filter_str = " or ".join(f"CommitteeSessionID eq {sid}" for sid in chunk)
+        items = _fetch("KNS_CmtSessionItem", {
+            "$filter": filter_str,
+            "$orderby": "CommitteeSessionID,Ordinal",
+            "$top": "1000",
+        })
+        for item in items:
+            sid  = item.get("CommitteeSessionID")
+            name = (item.get("Name") or "").strip().replace("\n", " ")
+            if sid and name:
+                result.setdefault(sid, []).append(name)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Committee sessions
 # ---------------------------------------------------------------------------
 
@@ -102,6 +129,11 @@ def _committee_sessions(start: datetime, end: datetime) -> list[list]:
         "$orderby": "StartDate",
         "$top": "300",
     })
+
+    # Pre-fetch all agenda items in one batch
+    session_ids = [item["CommitteeSessionID"] for item in items if item.get("CommitteeSessionID")]
+    agenda_map  = _fetch_agenda_items(session_ids)
+
     rows = []
     for item in items:
         # Skip cancelled / deleted
@@ -119,13 +151,15 @@ def _committee_sessions(start: datetime, end: datetime) -> list[list]:
             committee_obj = {}
         committee = committee_obj.get("Name", "ועדה")
 
-        note     = (item.get("Note") or "").strip()
-        location = (item.get("Location") or "").strip()
-        desc     = " | ".join(filter(None, [note, location, status]))
+        sid    = item.get("CommitteeSessionID")
+        topics = agenda_map.get(sid, [])
+        desc   = " | ".join(topics) if topics else ""
 
-        link = (item.get("SessionUrl") or "").strip()
-        if link and not link.startswith("http"):
-            link = "https://main.knesset.gov.il" + link
+        committee_id = item.get("CommitteeID") or (committee_obj.get("CommitteeID") if committee_obj else None)
+        link = (
+            f"https://main.knesset.gov.il/APPS/committees/{committee_id}/sessions/{sid}"
+            if committee_id and sid else ""
+        )
 
         rows.append([date_str, time_str, committee, desc, link])
     return rows
