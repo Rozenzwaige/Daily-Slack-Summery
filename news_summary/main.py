@@ -662,8 +662,8 @@ _מקורות: ynet, הארץ, וואלה, N12, שיחה מקומית, גלוב�
 כתוב את הסיכום:"""
 
     message = client.messages.create(
-        model="claude-haiku-4-5",
-        max_tokens=4096,
+        model="claude-sonnet-4-6",
+        max_tokens=8192,
         messages=[{"role": "user", "content": prompt}],
     )
     return fix_slack_links(message.content[0].text.strip())
@@ -731,7 +731,7 @@ def send_to_slack(text: str):
         ],
     })
 
-    payload = {"blocks": blocks}
+    payload = {"blocks": blocks, "unfurl_links": False, "unfurl_media": False}
     resp = requests.post(SLACK_WEBHOOK_URL, json=payload, timeout=15)
     resp.raise_for_status()
     print("✅ Sent to Slack")
