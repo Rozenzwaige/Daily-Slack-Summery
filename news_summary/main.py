@@ -224,7 +224,7 @@ GOOGLE_NEWS_QUERIES = [
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def is_recent(entry, hours: int = 26) -> bool:
+def is_recent(entry, hours: int = 12) -> bool:
     """Return True if the entry was published within the last N hours."""
     for attr in ("published_parsed", "updated_parsed"):
         val = getattr(entry, attr, None)
@@ -408,7 +408,7 @@ def read_slack_inputs() -> list[dict]:
     if not SLACK_BOT_TOKEN or not NEWS_INPUTS_CHANNEL:
         return []
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=26)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
     headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
     params  = {
         "channel": NEWS_INPUTS_CHANNEL,
@@ -465,20 +465,20 @@ def collect_articles() -> list[dict]:
         ("NYT Business",         "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
         ("Al-Jazeera English",   "https://www.aljazeera.com/xml/rss/all.xml"),
         # Wafa direct RSS returns 404 — using Google News instead
-        ("Wafa",                 "https://news.google.com/rss/search?q=site:wafa.ps+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("Wafa",                 "https://news.google.com/rss/search?q=site:wafa.ps+when:12h&hl=en-US&gl=US&ceid=US:en"),
         # Ma'an News is behind Cloudflare — removed
         # International wire / prestige press (Reuters & AP have no public RSS — via Google News)
-        ("Reuters",              "https://news.google.com/rss/search?q=site:reuters.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
-        ("AP",                   "https://news.google.com/rss/search?q=site:apnews.com+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
-        ("AFP",                  "https://news.google.com/rss/search?q=AFP+(Israel+OR+Gaza+OR+Palestinian)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("Reuters",              "https://news.google.com/rss/search?q=site:reuters.com+(Israel+OR+Gaza+OR+Palestinian)+when:12h&hl=en-US&gl=US&ceid=US:en"),
+        ("AP",                   "https://news.google.com/rss/search?q=site:apnews.com+(Israel+OR+Gaza+OR+Palestinian)+when:12h&hl=en-US&gl=US&ceid=US:en"),
+        ("AFP",                  "https://news.google.com/rss/search?q=AFP+(Israel+OR+Gaza+OR+Palestinian)+when:12h&hl=en-US&gl=US&ceid=US:en"),
         ("Washington Post",       "https://feeds.washingtonpost.com/rss/world"),
         ("Washington Post Econ", "https://feeds.washingtonpost.com/rss/business"),
         ("Le Monde",             "https://www.lemonde.fr/en/rss/une.xml"),
         ("Le Monde — Économie",  "https://www.lemonde.fr/economie/rss_full.xml"),
         # הארץ — Google News RSS (מתעדכן בזמן אמת)
-        ("הארץ",                 "https://news.google.com/rss/search?q=site:haaretz.co.il+when:1d&hl=he&gl=IL&ceid=IL:he"),
+        ("הארץ",                 "https://news.google.com/rss/search?q=site:haaretz.co.il+when:12h&hl=he&gl=IL&ceid=IL:he"),
         # דה מרקר — Google News RSS
-        ("דה מרקר",              "https://news.google.com/rss/search?q=site:themarker.com+when:1d&hl=he&gl=IL&ceid=IL:he"),
+        ("דה מרקר",              "https://news.google.com/rss/search?q=site:themarker.com+when:12h&hl=he&gl=IL&ceid=IL:he"),
         # גלובס — RSS feeds ייעודיים
         ("גלובס — כלכלה",        "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=2"),
         ("גלובס — שוק ההון",     "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=585"),
@@ -495,12 +495,12 @@ def collect_articles() -> list[dict]:
         # Monthly Review — socialist theory & economics
         ("Monthly Review",       "https://monthlyreview.org/feed/"),
         # The Economist — economics & business (via Google News, paywalled direct RSS)
-        ("The Economist",        "https://news.google.com/rss/search?q=site:economist.com+(labor+OR+workers+OR+economy+OR+inequality+OR+welfare)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("The Economist",        "https://news.google.com/rss/search?q=site:economist.com+(labor+OR+workers+OR+economy+OR+inequality+OR+welfare)+when:12h&hl=en-US&gl=US&ceid=US:en"),
         # WSJ — economics & labor (via Google News, paywalled direct RSS)
-        ("WSJ",                  "https://news.google.com/rss/search?q=site:wsj.com+(labor+OR+workers+OR+economy+OR+inequality+OR+union)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("WSJ",                  "https://news.google.com/rss/search?q=site:wsj.com+(labor+OR+workers+OR+economy+OR+inequality+OR+union)+when:12h&hl=en-US&gl=US&ceid=US:en"),
         # Libération & L'Humanité — French left press (via Google News in English)
-        ("Libération",           "https://news.google.com/rss/search?q=site:liberation.fr+(workers+OR+labor+OR+left+OR+social)+when:1d&hl=en-US&gl=US&ceid=US:en"),
-        ("L'Humanité",           "https://news.google.com/rss/search?q=site:humanite.fr+(workers+OR+labor+OR+left+OR+union)+when:1d&hl=en-US&gl=US&ceid=US:en"),
+        ("Libération",           "https://news.google.com/rss/search?q=site:liberation.fr+(workers+OR+labor+OR+left+OR+social)+when:12h&hl=en-US&gl=US&ceid=US:en"),
+        ("L'Humanité",           "https://news.google.com/rss/search?q=site:humanite.fr+(workers+OR+labor+OR+left+OR+union)+when:12h&hl=en-US&gl=US&ceid=US:en"),
         # New Left Review — via Google News
         ("New Left Review",      "https://news.google.com/rss/search?q=site:newleftreview.org+when:30d&hl=en-US&gl=US&ceid=US:en"),
     ]
@@ -768,8 +768,8 @@ def split_whatsapp_sections(text: str) -> list[str]:
         else:
             body_lines.append(line)
 
-    # Section header pattern: a line that is exactly  *<content>*  (short, has an emoji)
-    section_re = re.compile(r"^\*[^*]{2,50}\*\s*$")
+    # Section header pattern: *כותרת* or ## כותרת (both formats Claude may produce)
+    section_re = re.compile(r"^(\*[^*\n]{2,70}\*|#{1,3}\s+\S.{1,70})\s*$")
 
     sections: list[str] = []
     current: list[str] = []
