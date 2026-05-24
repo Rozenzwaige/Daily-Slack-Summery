@@ -2,10 +2,10 @@ name: Daily News Summary
 
 on:
   schedule:
-    # Primary:  06:30 UTC = 09:30 IDT — after the 08:00 morning bulletin is out
-    - cron: "30 6 * * 0,1,2,3,4"
-    # Backup:   07:00 UTC = 10:00 IDT — in case GitHub misses the primary trigger
-    - cron: "0 7 * * 0,1,2,3,4"
+    # Primary:  01:13 UTC = 04:13 IDT — Sunday–Thursday
+    - cron: "13 1 * * 0,1,2,3,4"
+    # Backup:   01:37 UTC = 04:37 IDT — in case GitHub misses the primary trigger
+    - cron: "37 1 * * 0,1,2,3,4"
 
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
