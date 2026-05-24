@@ -448,7 +448,7 @@ def read_slack_inputs() -> list[dict]:
         return []
 
 
-# ─── Galatz radio transcription ──────────────────────────────────────────────
+# ─── Radio transcription (Galatz + Kan Reshet Bet) ───────────────────────────
 
 GALATZ_RSS = (
     "https://www.omnycontent.com/d/playlist/"
@@ -457,24 +457,33 @@ GALATZ_RSS = (
     "e9ba2fce-8956-400c-b84e-ade800c27a87/podcast.rss"
 )
 
-def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
+KAN_RSS = "https://www.spreaker.com/show/6095076/episodes/feed"
+
+
+def _transcribe_bulletins(
+    rss_url: str,
+    source_name: str,
+    groq_api_key: str,
+    max_bulletins: int = 3,
+) -> list[dict]:
     """
-    Fetch the latest Galatz hourly news bulletins and transcribe them.
-    Returns articles in the same format as RSS articles.
+    Generic helper: fetch recent bulletins from a podcast RSS feed and
+    transcribe each one with Groq Whisper.  Returns articles in the same
+    format used by the rest of the pipeline.
     """
-    import tempfile, os
+    import tempfile
     from groq import Groq
 
     groq_client = Groq(api_key=groq_api_key)
     cutoff = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    print("📻 Fetching Galatz hourly news RSS...")
-    feed = feedparser.parse(GALATZ_RSS)
+    print(f"📻 Fetching {source_name} RSS...")
+    feed = feedparser.parse(rss_url)
     if not feed.entries:
-        print("   ⚠️  No Galatz entries found")
+        print(f"   ⚠️  No entries found for {source_name}")
         return []
 
-    # Collect recent bulletins (last ~5 hours to cover 6:00/7:00/8:00)
+    # Collect recent bulletins (last ~5 hours covers 6:00/7:00/8:00 IDT)
     bulletins = []
     for entry in feed.entries:
         if not hasattr(entry, "published_parsed") or not entry.published_parsed:
@@ -492,20 +501,18 @@ def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[
 
     bulletins = bulletins[:max_bulletins]
     if not bulletins:
-        print("   ⚠️  No recent Galatz bulletins found")
+        print(f"   ⚠️  No recent {source_name} bulletins found")
         return []
 
     print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
     articles = []
     for b in bulletins:
         try:
-            # Download audio
-            r = requests.get(b["url"], timeout=60)
+            r = requests.get(b["url"], timeout=60, allow_redirects=True)
             r.raise_for_status()
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                 f.write(r.content)
                 tmp = f.name
-            # Transcribe with Groq Whisper
             with open(tmp, "rb") as audio_file:
                 result = groq_client.audio.transcriptions.create(
                     model="whisper-large-v3",
@@ -516,8 +523,8 @@ def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[
             hour_str = (b["pub"] + timedelta(hours=3)).strftime("%H:%M")  # UTC→IDT
             print(f"   ✅ Transcribed: {b['title']} ({len(result.text)} chars)")
             articles.append({
-                "source": "גלי צה\"ל — רדיו",
-                "title": f"מהדורת חדשות {hour_str} — גלי צה\"ל",
+                "source": source_name,
+                "title": f"מהדורת חדשות {hour_str} — {source_name}",
                 "url": b["url"],
                 "text": result.text,
                 "published": b["pub"].isoformat(),
@@ -526,6 +533,16 @@ def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[
             print(f"   ❌ Failed to transcribe {b['title']}: {e}")
 
     return articles
+
+
+def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
+    """Fetch & transcribe the latest Galatz (גלי צה\"ל) hourly news bulletins."""
+    return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key, max_bulletins)
+
+
+def fetch_kan_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
+    """Fetch & transcribe the latest Kan Reshet Bet (כאן רשת ב) hourly news bulletins."""
+    return _transcribe_bulletins(KAN_RSS, "כאן — רשת ב", groq_api_key, max_bulletins)
 
 
 # ─── Collect all articles ─────────────────────────────────────────────────────
@@ -636,12 +653,16 @@ def collect_articles() -> list[dict]:
     manual = read_slack_inputs()
     all_articles.extend(manual)
 
-    # 📻 Galatz radio transcription
+    # 📻 Radio transcription — Galatz + Kan Reshet Bet
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if groq_key:
-        radio_articles = fetch_galatz_transcripts(groq_key, max_bulletins=3)
-        all_articles.extend(radio_articles)
-        print(f"📻 Added {len(radio_articles)} Galatz radio transcript(s)")
+        for fetch_fn, label in [
+            (fetch_galatz_transcripts, "גלי צה\"ל"),
+            (fetch_kan_transcripts,    "כאן רשת ב"),
+        ]:
+            radio_articles = fetch_fn(groq_key, max_bulletins=3)
+            all_articles.extend(radio_articles)
+            print(f"📻 Added {len(radio_articles)} transcript(s) from {label}")
     else:
         print("⚠️  GROQ_API_KEY not set — skipping radio transcription")
 
@@ -680,6 +701,9 @@ def collect_articles() -> list[dict]:
         if s == "AP" or "AP " in s: return 16
         if "AFP"         in s: return 17
         if "Reuters"     in s: return 18
+        # Radio
+        if "גלי צה"      in s: return 20
+        if "כאן — רשת"   in s: return 21
         return 50
 
     def _source_cap(source: str) -> int:
@@ -709,6 +733,9 @@ def collect_articles() -> list[dict]:
         if "AFP"                     in s: return 15   # AFP לפני AP!
         if "AP"                      in s: return 15
         if "Reuters"                 in s: return 15
+        # ── רדיו ──────────────────────────────────────────────────────
+        if "גלי צה"                  in s: return 5    # מהדורה = כתבה 1 עם הרבה תוכן
+        if "כאן — רשת"               in s: return 5
         # ── כל השאר ───────────────────────────────────────────────────
         return 10
 
