@@ -448,6 +448,86 @@ def read_slack_inputs() -> list[dict]:
         return []
 
 
+# ─── Galatz radio transcription ──────────────────────────────────────────────
+
+GALATZ_RSS = (
+    "https://www.omnycontent.com/d/playlist/"
+    "6dcbc33f-1fb6-49de-9ae2-ad8a00c01523/"
+    "642b5ea6-ce25-4da0-94b8-ade800c22a62/"
+    "e9ba2fce-8956-400c-b84e-ade800c27a87/podcast.rss"
+)
+
+def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
+    """
+    Fetch the latest Galatz hourly news bulletins and transcribe them.
+    Returns articles in the same format as RSS articles.
+    """
+    import tempfile, os
+    from groq import Groq
+
+    groq_client = Groq(api_key=groq_api_key)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=5)
+
+    print("📻 Fetching Galatz hourly news RSS...")
+    feed = feedparser.parse(GALATZ_RSS)
+    if not feed.entries:
+        print("   ⚠️  No Galatz entries found")
+        return []
+
+    # Collect recent bulletins (last ~5 hours to cover 6:00/7:00/8:00)
+    bulletins = []
+    for entry in feed.entries:
+        if not hasattr(entry, "published_parsed") or not entry.published_parsed:
+            continue
+        pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+        if pub < cutoff:
+            break
+        audio_url = None
+        for enc in getattr(entry, "enclosures", []):
+            if enc.get("type", "").startswith("audio") or enc.get("url", "").endswith(".mp3"):
+                audio_url = enc["url"]
+                break
+        if audio_url:
+            bulletins.append({"title": entry.title, "pub": pub, "url": audio_url})
+
+    bulletins = bulletins[:max_bulletins]
+    if not bulletins:
+        print("   ⚠️  No recent Galatz bulletins found")
+        return []
+
+    print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
+    articles = []
+    for b in bulletins:
+        try:
+            # Download audio
+            r = requests.get(b["url"], timeout=60)
+            r.raise_for_status()
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                f.write(r.content)
+                tmp = f.name
+            # Transcribe with Groq Whisper
+            with open(tmp, "rb") as audio_file:
+                result = groq_client.audio.transcriptions.create(
+                    model="whisper-large-v3",
+                    file=audio_file,
+                    language="he",
+                )
+            os.unlink(tmp)
+            hour_str = (b["pub"] + timedelta(hours=3)).strftime("%H:%M")  # UTC→IDT
+            print(f"   ✅ Transcribed: {b['title']} ({len(result.text)} chars)")
+            articles.append({
+                "source": "גלי צה\"ל — רדיו",
+                "title": f"מהדורת חדשות {hour_str} — גלי צה\"ל",
+                "url": b["url"],
+                "text": result.text,
+                "published": b["pub"].isoformat(),
+            })
+        except Exception as e:
+            print(f"   ❌ Failed to transcribe {b['title']}: {e}")
+
+    return articles
+
+
 # ─── Collect all articles ─────────────────────────────────────────────────────
 
 def collect_articles() -> list[dict]:
@@ -555,6 +635,15 @@ def collect_articles() -> list[dict]:
     print("📌 Reading manual inputs from #news-inputs...")
     manual = read_slack_inputs()
     all_articles.extend(manual)
+
+    # 📻 Galatz radio transcription
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key:
+        radio_articles = fetch_galatz_transcripts(groq_key, max_bulletins=3)
+        all_articles.extend(radio_articles)
+        print(f"📻 Added {len(radio_articles)} Galatz radio transcript(s)")
+    else:
+        print("⚠️  GROQ_API_KEY not set — skipping radio transcription")
 
     # Deduplicate by normalised title prefix
     seen: set[str] = set()
