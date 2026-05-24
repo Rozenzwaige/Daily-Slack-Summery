@@ -280,117 +280,25 @@ WELCOME_MSG = (
     "מה תרצה לדעת? 📰"
 )
 
-
-@app.event("app_home_opened")
-async def handle_home(event, client):
-    """Show welcome message when user opens the App Home tab."""
-    await client.views_publish(
-        user_id=event["user"],
-        view={
-            "type": "home",
-            "blocks": [{
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": WELCOME_MSG},
-            }],
-        },
-    )
+# Tracks (channel, thread_ts) pairs where the bot is actively participating.
+# Populated when the bot answers an @mention; cleared on restart.
+_active_threads: set[tuple[str, str]] = set()
 
 
-@app.event("message")
-async def handle_dm(event, say, client):
-    """Handle DMs sent directly to the bot."""
-    print(f"📨 message event: channel_type={event.get('channel_type')} bot_id={event.get('bot_id')} subtype={event.get('subtype')} text={event.get('text','')[:60]}", flush=True)
-    # Ignore bot messages and non-DM channels
-    if event.get("bot_id") or event.get("subtype"):
-        return
-    if event.get("channel_type") != "im":
-        return
-
-    user_text = event.get("text", "").strip()
-    if not user_text:
-        return
-
-    channel = event["channel"]
-    loop    = asyncio.get_event_loop()
-
-    # Post initial status message (will be updated in-place)
-    status = await client.chat_postMessage(
-        channel=channel,
-        text="🔍 מחפש כתבות... (לוקח כ-15 שניות)",
-    )
-    ts = status["ts"]
-
-    async def update(text: str):
-        await client.chat_update(channel=channel, ts=ts, text=text)
-
-    try:
-        # 1. Parse intent
-        intent = await loop.run_in_executor(executor, parse_intent, user_text)
-
-        if not intent.get("is_news_query", True):
-            await update(WELCOME_MSG)
-            return
-
-        hours       = int(intent.get("hours", 48))
-        topic_label = intent.get("topic_label", "חדשות")
-        keywords    = intent.get("search_keywords", [])
-        period      = _period_label(hours)
-
-        await update(f"📡 מאסף כתבות על *{topic_label}* מ{period}...")
-
-        # 2. Fetch articles (parallel RSS fetching in thread pool)
-        articles = await loop.run_in_executor(executor, collect_articles, hours)
-
-        # 3. Filter by topic
-        filtered = filter_by_topic(articles, keywords)
-
-        await update(
-            f"✍️ מסכם {len(filtered)} כתבות על *{topic_label}* "
-            f"({len(articles)} כתבות נמצאו בסה\"כ)..."
-        )
-
-        # 4. Summarize
-        summary = await loop.run_in_executor(
-            executor, summarize, filtered, topic_label, hours, user_text
-        )
-
-        # 5. Final response
-        header = f"📰 *{topic_label}* | {period}\n\n"
-        await update(header + summary)
-
-    except Exception as e:
-        print(f"Error handling message: {e}", flush=True)
-        await update("😕 אירעה שגיאה. נסה שוב בעוד רגע.")
-
-
-# ─── App mention (in channels) ───────────────────────────────────────────────
-
-@app.event("app_mention")
-async def handle_mention(event, say, client):
-    """Handle @איתמר mentions in channels — reply in a thread."""
-    if event.get("bot_id") or event.get("subtype"):
-        return
-
-    # Strip the bot mention tag (<@UXXXXXXX>) from the text
-    raw_text = event.get("text", "")
-    import re as _re
-    user_text = _re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
-
-    if not user_text:
-        await say(
-            text="שלום! תייג אותי עם שאלה, לדוגמה: _@איתמר מה קרה עם ארגוני עובדים השבוע?_ 📰",
-            thread_ts=event["ts"],
-        )
-        return
-
-    channel   = event["channel"]
-    thread_ts = event["ts"]          # reply inside the same thread
-    loop      = asyncio.get_event_loop()
+async def _process_query(user_text: str, channel: str, thread_ts: str | None, client) -> None:
+    """
+    Core pipeline: intent → fetch → filter → summarize → reply.
+    Used by both the DM handler and the channel-thread handler.
+    thread_ts=None  →  plain DM reply (no thread)
+    thread_ts=<ts>  →  reply inside the given Slack thread
+    """
+    loop = asyncio.get_event_loop()
+    post_kwargs = {"thread_ts": thread_ts} if thread_ts else {}
 
     status = await client.chat_postMessage(
         channel=channel,
-        thread_ts=thread_ts,
         text="🔍 מחפש כתבות... (לוקח כ-15 שניות)",
+        **post_kwargs,
     )
     msg_ts = status["ts"]
 
@@ -423,12 +331,95 @@ async def handle_mention(event, say, client):
             executor, summarize, filtered, topic_label, hours, user_text
         )
 
-        header = f"📰 *{topic_label}* | {period}\n\n"
-        await update(header + summary)
+        await update(f"📰 *{topic_label}* | {period}\n\n{summary}")
 
     except Exception as e:
-        print(f"Error handling mention: {e}", flush=True)
+        print(f"Error processing query: {e}", flush=True)
         await update("😕 אירעה שגיאה. נסה שוב בעוד רגע.")
+
+
+@app.event("app_home_opened")
+async def handle_home(event, client):
+    """Show welcome message when user opens the App Home tab."""
+    await client.views_publish(
+        user_id=event["user"],
+        view={
+            "type": "home",
+            "blocks": [{
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": WELCOME_MSG},
+            }],
+        },
+    )
+
+
+@app.event("message")
+async def handle_message(event, say, client):
+    """
+    Handle incoming messages:
+    • DM  → always respond
+    • Channel thread reply → respond only if bot is active in that thread
+    """
+    print(f"📨 message: channel_type={event.get('channel_type')} "
+          f"bot_id={event.get('bot_id')} subtype={event.get('subtype')} "
+          f"thread_ts={event.get('thread_ts')} text={event.get('text','')[:50]}",
+          flush=True)
+
+    if event.get("bot_id") or event.get("subtype"):
+        return
+
+    channel      = event["channel"]
+    channel_type = event.get("channel_type")
+    thread_ts    = event.get("thread_ts")   # set only when inside a thread
+    msg_ts       = event.get("ts")
+    user_text    = event.get("text", "").strip()
+
+    if not user_text:
+        return
+
+    # ── DM ────────────────────────────────────────────────────────────────────
+    if channel_type == "im":
+        await _process_query(user_text, channel, None, client)
+        return
+
+    # ── Channel thread reply (no @mention needed) ─────────────────────────────
+    # Respond if this message is a reply in a thread the bot is already in.
+    if thread_ts and thread_ts != msg_ts and (channel, thread_ts) in _active_threads:
+        await _process_query(user_text, channel, thread_ts, client)
+
+
+# ─── App mention (in channels) ───────────────────────────────────────────────
+
+@app.event("app_mention")
+async def handle_mention(event, say, client):
+    """
+    Handle @איתמר mentions in channels.
+    Registers the thread as active so follow-up messages (without @mention)
+    are also handled by handle_message.
+    """
+    if event.get("bot_id") or event.get("subtype"):
+        return
+
+    import re as _re
+    raw_text  = event.get("text", "")
+    user_text = _re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
+    channel   = event["channel"]
+    # Use thread_ts if the mention is inside an existing thread, else event["ts"]
+    thread_ts = event.get("thread_ts") or event["ts"]
+
+    # Register thread so follow-up replies are handled without @mention
+    _active_threads.add((channel, thread_ts))
+    print(f"🧵 Registered active thread ({channel}, {thread_ts})", flush=True)
+
+    if not user_text:
+        await client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text="שלום! תייג אותי עם שאלה, לדוגמה: _@איתמר מה קרה עם ארגוני עובדים השבוע?_ 📰",
+        )
+        return
+
+    await _process_query(user_text, channel, thread_ts, client)
 
 
 # ─── Health check server (keeps Fly.io machine alive) ────────────────────────
