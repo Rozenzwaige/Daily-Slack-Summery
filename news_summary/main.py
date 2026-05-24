@@ -479,6 +479,8 @@ def collect_articles() -> list[dict]:
         ("הארץ",                 "https://news.google.com/rss/search?q=site:haaretz.co.il+when:12h&hl=he&gl=IL&ceid=IL:he"),
         # דה מרקר — Google News RSS
         ("דה מרקר",              "https://news.google.com/rss/search?q=site:themarker.com+when:12h&hl=he&gl=IL&ceid=IL:he"),
+        # כלכליסט — Google News RSS
+        ("כלכליסט",              "https://news.google.com/rss/search?q=site:calcalist.co.il+when:12h&hl=he&gl=IL&ceid=IL:he"),
         # גלובס — RSS feeds ייעודיים
         ("גלובס — כלכלה",        "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=2"),
         ("גלובס — שוק ההון",     "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=585"),
