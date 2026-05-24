@@ -563,7 +563,21 @@ def collect_articles() -> list[dict]:
             seen.add(key)
             unique.append(a)
 
-    print(f"\n📊 Unique relevant articles: {len(unique)}")
+    # Cap per source so no single outlet dominates (max 15 per named source)
+    from collections import defaultdict
+    MAX_PER_SOURCE = 15
+    source_count: dict = defaultdict(int)
+    capped: list[dict] = []
+    for a in unique:
+        src = a["source"]
+        if source_count[src] < MAX_PER_SOURCE:
+            capped.append(a)
+            source_count[src] += 1
+    unique = capped
+
+    print(f"\n📊 Unique relevant articles after cap: {len(unique)}")
+    for src, cnt in sorted(source_count.items(), key=lambda x: -x[1]):
+        print(f"   {src}: {cnt}")
     return unique
 
 
