@@ -535,6 +535,98 @@ def _transcribe_bulletins(
     return articles
 
 
+# ─── Google Sheets — radio transcripts ───────────────────────────────────────
+
+_RADIO_SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו"]
+_RADIO_TAB_NAME      = "תמלולי רדיו"
+
+
+def write_radio_to_sheet(radio_articles: list[dict]) -> None:
+    """
+    Write radio transcriptions to a dedicated Google Sheet.
+    Uses GOOGLE_CREDENTIALS_JSON + RADIO_SHEET_ID env vars.
+    If RADIO_SHEET_ID is not set, creates a new sheet automatically
+    and prints its URL to the log.
+    """
+    if not radio_articles:
+        return
+
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    if not creds_json:
+        print("⚠️  GOOGLE_CREDENTIALS_JSON not set — skipping sheet write")
+        return
+
+    try:
+        import gspread
+        import json as _json
+        from google.oauth2.service_account import Credentials as _Credentials
+
+        creds = _Credentials.from_service_account_info(
+            _json.loads(creds_json),
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+        client = gspread.authorize(creds)
+
+        sheet_id = os.environ.get("RADIO_SHEET_ID", "").strip()
+        if sheet_id:
+            sh = client.open_by_key(sheet_id)
+        else:
+            sh = client.create("Standing Together — תמלולי רדיו")
+            sh.share(None, perm_type="anyone", role="writer")
+            print(f"⚠️  Created new Google Sheet — add this secret to the repo:")
+            print(f"    RADIO_SHEET_ID = {sh.id}")
+            print(f"🔗  URL: https://docs.google.com/spreadsheets/d/{sh.id}")
+
+        # Ensure the tab exists with headers
+        try:
+            ws = sh.worksheet(_RADIO_TAB_NAME)
+        except gspread.WorksheetNotFound:
+            ws = sh.add_worksheet(title=_RADIO_TAB_NAME, rows=2000, cols=6)
+            ws.append_row(_RADIO_SHEET_HEADERS, value_input_option="RAW")
+            # Right-to-left direction
+            sh.batch_update({"requests": [{
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": ws.id,
+                        "rightToLeft": True,
+                    },
+                    "fields": "rightToLeft",
+                }
+            }]})
+            print(f"📋 Created tab '{_RADIO_TAB_NAME}'")
+
+        # Build rows (newest first — will be inserted at row 2)
+        rows = []
+        for a in radio_articles:
+            pub = a.get("published", "")
+            try:
+                dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
+                dt_idt = dt + timedelta(hours=3)          # UTC → IDT
+                date_str = dt_idt.strftime("%d/%m/%Y")
+                time_str = dt_idt.strftime("%H:%M")
+            except Exception:
+                date_str = datetime.now().strftime("%d/%m/%Y")
+                time_str = ""
+            rows.append([
+                date_str,
+                time_str,
+                a.get("source", ""),
+                a.get("title", ""),
+                a.get("text", ""),
+                a.get("url", ""),
+            ])
+
+        if rows:
+            ws.insert_rows(rows, row=2, value_input_option="USER_ENTERED")
+            print(f"📋 Wrote {len(rows)} radio transcript(s) to Google Sheet")
+
+    except Exception as e:
+        print(f"⚠️  Failed to write radio transcripts to sheet: {e}")
+
+
 def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
     """Fetch & transcribe the latest Galatz (גלי צה\"ל) hourly news bulletins."""
     return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key, max_bulletins)
@@ -1033,6 +1125,11 @@ def main():
     print(f"{'='*55}\n")
 
     articles = collect_articles()
+
+    # 📋 Write radio transcriptions to Google Sheet (before seen-filter)
+    _radio_sources = ("גלי צה", "כאן — רשת")
+    radio_articles = [a for a in articles if any(s in a.get("source", "") for s in _radio_sources)]
+    write_radio_to_sheet(radio_articles)
 
     # Filter out articles already sent in the last 48 hours
     seen = load_seen_articles()

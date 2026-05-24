@@ -84,9 +84,11 @@ jobs:
           NEWS_INPUTS_CHANNEL:  ${{ secrets.NEWS_INPUTS_CHANNEL }}
           HAARETZ_COOKIES:      ${{ secrets.HAARETZ_COOKIES }}
           GLOBES_COOKIES:       ${{ secrets.GLOBES_COOKIES }}
-          GREEN_API_INSTANCE:   ${{ secrets.GREEN_API_INSTANCE }}
-          GREEN_API_TOKEN:      ${{ secrets.GREEN_API_TOKEN }}
-          WHATSAPP_GROUP_ID:    ${{ secrets.WHATSAPP_GROUP_ID }}
+          GREEN_API_INSTANCE:        ${{ secrets.GREEN_API_INSTANCE }}
+          GREEN_API_TOKEN:           ${{ secrets.GREEN_API_TOKEN }}
+          WHATSAPP_GROUP_ID:         ${{ secrets.WHATSAPP_GROUP_ID }}
+          GOOGLE_CREDENTIALS_JSON:   ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          RADIO_SHEET_ID:            ${{ secrets.RADIO_SHEET_ID }}
         run: python news_summary/main.py
 
       - name: Upload articles debug artifact
