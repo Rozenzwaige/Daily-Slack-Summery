@@ -459,11 +459,6 @@ GALATZ_RSS = (
 
 KAN_RSS = "https://www.spreaker.com/show/6095076/episodes/feed"
 
-# Hours (IDT = UTC+3) whose bulletins we transcribe each day.
-# 9 bulletins × 2 stations × ~4 min ≈ 72 min = 4,320 s — well within
-# Groq's free-tier cap of 7,200 audio-seconds per hour.
-TARGET_HOURS_IDT: frozenset[int] = frozenset({6, 7, 8, 12, 13, 18, 19, 20, 21})
-
 
 def _split_bulletin_to_items(segments, full_text: str, gap_seconds: float = 2.0) -> list[str]:
     """
@@ -509,22 +504,18 @@ def _transcribe_bulletins(
     rss_url: str,
     source_name: str,
     groq_api_key: str,
-    target_hours: frozenset[int] | None = None,
+    max_bulletins: int = 3,
 ) -> list[dict]:
     """
-    Generic helper: fetch bulletins from a podcast RSS feed whose publication
-    hour (IDT = UTC+3) is in target_hours, then transcribe with Groq Whisper.
+    Generic helper: fetch the most recent bulletins (within last 12 h) from a
+    podcast RSS feed and transcribe each with Groq Whisper (verbose_json).
     Each individual news item within a bulletin becomes a separate article.
-
-    We look back 26 h so that the 6:00 IDT bulletin (~03:00 UTC) is still
-    reachable when the script runs at ~01:13 UTC the following morning.
     """
     import tempfile
     from groq import Groq
 
     groq_client = Groq(api_key=groq_api_key)
-    # 26 h covers the 6:00 IDT bulletin published ~03:00 UTC the day before
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=26)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
 
     print(f"📻 Fetching {source_name} RSS...")
     feed = feedparser.parse(rss_url)
@@ -538,11 +529,7 @@ def _transcribe_bulletins(
             continue
         pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
         if pub < cutoff:
-            continue                              # skip episodes older than 26 h
-        if target_hours is not None:
-            pub_idt_hour = (pub + timedelta(hours=3)).hour  # UTC → IDT
-            if pub_idt_hour not in target_hours:
-                continue                          # skip hours we don't want
+            break
         audio_url = None
         for enc in getattr(entry, "enclosures", []):
             if enc.get("type", "").startswith("audio") or enc.get("url", "").endswith(".mp3"):
@@ -551,12 +538,12 @@ def _transcribe_bulletins(
         if audio_url:
             bulletins.append({"title": entry.title, "pub": pub, "url": audio_url})
 
+    bulletins = bulletins[:max_bulletins]
     if not bulletins:
-        print(f"   ⚠️  No matching {source_name} bulletins found")
+        print(f"   ⚠️  No recent {source_name} bulletins found")
         return []
 
-    wanted = sorted(target_hours) if target_hours else []
-    print(f"   Found {len(bulletins)} bulletin(s) for hours {wanted} — transcribing...")
+    print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
 
     print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
     articles = []
@@ -700,25 +687,19 @@ def write_radio_to_sheet(radio_articles: list[dict]) -> None:
         print(f"⚠️  Failed to write radio transcripts to sheet: {e}")
 
 
-def fetch_galatz_transcripts(
-    groq_api_key: str,
-    target_hours: frozenset[int] = TARGET_HOURS_IDT,
-) -> list[dict]:
-    """Fetch & transcribe Galatz (גלי צה\"ל) hourly news bulletins for target_hours."""
-    return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key, target_hours)
+def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
+    """Fetch & transcribe the latest Galatz (גלי צה\"ל) hourly news bulletins."""
+    return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key, max_bulletins)
 
 
-def fetch_kan_transcripts(
-    groq_api_key: str,
-    target_hours: frozenset[int] = TARGET_HOURS_IDT,
-) -> list[dict]:
-    """Fetch & transcribe Kan Reshet Bet (כאן רשת ב) hourly bulletins for target_hours."""
-    return _transcribe_bulletins(KAN_RSS, "כאן — רשת ב", groq_api_key, target_hours)
+def fetch_kan_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
+    """Fetch & transcribe the latest Kan Reshet Bet (כאן רשת ב) hourly news bulletins."""
+    return _transcribe_bulletins(KAN_RSS, "כאן — רשת ב", groq_api_key, max_bulletins)
 
 
 # ─── Collect all articles ─────────────────────────────────────────────────────
 
-def collect_articles() -> tuple[list[dict], list[dict]]:
+def collect_articles() -> list[dict]:
     all_articles: list[dict] = []
 
     print("📡 Fetching RSS feeds (reliable sources)...")
@@ -824,16 +805,14 @@ def collect_articles() -> tuple[list[dict], list[dict]]:
     manual = read_slack_inputs()
     all_articles.extend(manual)
 
-    # 📻 Radio transcription — Galatz + Kan Reshet Bet
+    # 📻 Radio transcription — Galatz + Kan Reshet Bet (last 12 h only)
     groq_key = os.environ.get("GROQ_API_KEY", "")
-    _all_radio: list[dict] = []   # full list before per-source cap (for the sheet)
     if groq_key:
         for fetch_fn, label in [
             (fetch_galatz_transcripts, "גלי צה\"ל"),
             (fetch_kan_transcripts,    "כאן רשת ב"),
         ]:
-            radio = fetch_fn(groq_key)   # uses TARGET_HOURS_IDT by default
-            _all_radio.extend(radio)
+            radio = fetch_fn(groq_key, max_bulletins=3)
             all_articles.extend(radio)
             print(f"📻 Added {len(radio)} transcript(s) from {label}")
     else:
@@ -929,7 +908,7 @@ def collect_articles() -> tuple[list[dict], list[dict]]:
     print(f"\n📊 Articles after priority sort + tiered cap: {len(unique)}")
     for src, cnt in sorted(source_count.items(), key=lambda x: _priority(x[0])):
         print(f"   [{_priority(src):>2}] {src}: {cnt}")
-    return unique, _all_radio
+    return unique
 
 
 # ─── Summarise with Claude ────────────────────────────────────────────────────
@@ -1205,10 +1184,7 @@ def main():
     print(f"  Standing Together — Daily News  |  {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     print(f"{'='*55}\n")
 
-    articles, radio_all = collect_articles()
-
-    # 📋 Write ALL radio transcriptions to Google Sheet (before seen-filter and cap)
-    write_radio_to_sheet(radio_all)
+    articles = collect_articles()
 
     # Filter out articles already sent in the last 48 hours
     seen = load_seen_articles()
