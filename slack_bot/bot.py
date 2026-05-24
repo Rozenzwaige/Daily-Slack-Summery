@@ -57,6 +57,7 @@ executor = ThreadPoolExecutor(max_workers=10)
 RSS_SOURCES = [
     # ─── עברית ────────────────────────────────────────────────────────────────
     ("ynet",               "https://www.ynet.co.il/Integration/StoryRss2.xml"),
+    ("ynet — ארכיון",      "https://news.google.com/rss/search?q=site:ynet.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
     ("שיחה מקומית",         "https://www.mekomit.co.il/feed/"),
     ("הארץ",               "https://news.google.com/rss/search?q=site:haaretz.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
     ("דה מרקר",            "https://news.google.com/rss/search?q=site:themarker.com+when:2d&hl=he&gl=IL&ceid=IL:he"),
@@ -162,7 +163,7 @@ INTENT_PROMPT = """\
 }}
 
 כללים:
-- search_keywords: 5-10 מילות מפתח שיעזרו לסנן כתבות רלוונטיות (עברית ואנגלית)
+- search_keywords: 10-20 מילות מפתח שיעזרו לסנן כתבות רלוונטיות (עברית ואנגלית), כולל מילים נרדפות ומושגים תימטיים קשורים
 - אם ההודעה היא המשך שיחה (לדוגמה "אז בשבוע האחרון" / "נסה יותר") — שמור את אותו נושא וmילות מפתח מהשיחה הקודמת, רק עדכן את hours
 - אם המשתמש ביקש "חדשות כלליות" או "סיכום" ללא נושא ספציפי — search_keywords יהיה רשימה ריקה []
 - hours: עגל לאחד מהערכים: 6, 12, 24, 48, 72, 168, 720\
@@ -199,15 +200,59 @@ def parse_intent(user_text: str, prev_topic: str = "", prev_keywords: list | Non
 
 # ─── Topic filtering ──────────────────────────────────────────────────────────
 
-def filter_by_topic(articles: list[dict], keywords: list[str]) -> list[dict]:
-    if not keywords:
+def filter_by_topic(articles: list[dict], keywords: list[str], topic: str = "") -> list[dict]:
+    """
+    Two-stage relevance filter:
+    1. Fast keyword match — catches obvious hits.
+    2. Claude semantic pass — catches thematic matches that keywords miss
+       (e.g. "מצוקה" when the topic is "רווחה וחברה").
+    """
+    if not keywords and not topic:
         return articles
-    filtered = []
+
+    # ── Stage 1: keyword pre-filter ──────────────────────────────────────────
+    kw_hits, kw_miss = [], []
     for a in articles:
         text = (a["title"] + " " + a.get("summary", "")).lower()
         if any(kw.lower() in text for kw in keywords):
-            filtered.append(a)
-    return filtered
+            kw_hits.append(a)
+        else:
+            kw_miss.append(a)
+
+    # ── Stage 2: Claude semantic filter on keyword-misses ────────────────────
+    # Send only titles (cheap) so Claude can spot thematic relevance.
+    if topic and kw_miss:
+        titles_block = "\n".join(
+            f"{i+1}. {a['title']}" for i, a in enumerate(kw_miss[:250])
+        )
+        prompt = (
+            f'נושא: "{topic}"\n\n'
+            f'מהרשימה הבאה, בחר את המספרים של כל הכתבות הקשורות לנושא — '
+            f'גם אם הקשר עקיף או תֵימטי.\n\n'
+            f'{titles_block}\n\n'
+            f'ענה רק במספרים מופרדים בפסיקים. אם אין כלום, ענה: אין'
+        )
+        try:
+            resp = claude.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = resp.content[0].text.strip()
+            if "אין" not in raw:
+                indices = [
+                    int(x.strip()) - 1
+                    for x in raw.replace(" ", "").split(",")
+                    if x.strip().isdigit()
+                ]
+                semantic_hits = [kw_miss[i] for i in indices if 0 <= i < len(kw_miss)]
+                print(f"🧠 Semantic filter added {len(semantic_hits)} articles "
+                      f"(beyond {len(kw_hits)} from keywords)", flush=True)
+                kw_hits.extend(semantic_hits)
+        except Exception as e:
+            print(f"Claude semantic filter error: {e}", flush=True)
+
+    return kw_hits
 
 
 # ─── Summarization ────────────────────────────────────────────────────────────
@@ -344,7 +389,9 @@ async def _process_query(user_text: str, channel: str, thread_ts: str | None, cl
         await update(f"📡 מאסף כתבות על *{topic_label}* מ{period}...")
 
         articles = await loop.run_in_executor(executor, collect_articles, hours)
-        filtered = filter_by_topic(articles, keywords)
+        filtered = await loop.run_in_executor(
+            executor, filter_by_topic, articles, keywords, topic_label
+        )
 
         await update(
             f"✍️ מסכם {len(filtered)} כתבות על *{topic_label}* "
