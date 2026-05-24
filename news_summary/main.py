@@ -591,24 +591,45 @@ def collect_articles() -> list[dict]:
         if "Reuters"     in s: return 18
         return 50
 
-    def _tier_cap(priority: int) -> int:
-        if priority <= 2:  return 20   # הארץ, דה מרקר
-        if priority <= 4:  return 15   # גלובס, כלכליסט
-        if priority <= 6:  return 12   # ynet, שיחה מקומית
-        if priority <= 10: return 8    # N12, ישראל היום, וואלה, מעריב
-        if priority <= 14: return 15   # Guardian, NYT, WSJ, Jacobin
-        if priority <= 18: return 10   # Wafa, AP, AFP, Reuters
-        return 8                       # שאר
+    def _source_cap(source: str) -> int:
+        """Per-source article cap — specific subsections matched before general."""
+        s = source
+        # ── עברי ──────────────────────────────────────────────────────
+        if "הארץ"                    in s: return 30
+        if "דה מרקר"                 in s: return 30
+        if "גלובס"                   in s: return 30
+        if "כלכליסט"                 in s: return 30
+        if "ynet" in s.lower() and ("כלכל" in s or "עסק" in s): return 20
+        if "ynet" in s.lower() and ("חינוך" in s or "רווחה" in s): return 10
+        if "ynet"                    in s.lower(): return 30   # ynet כללי
+        if "שיחה מקומית"             in s: return 5
+        if "ישראל היום" in s and ("רווחה" in s or "welfare" in s.lower()): return 5
+        if "ישראל היום" in s and ("חינוך" in s or "edu" in s.lower()):     return 5
+        if "ישראל היום"              in s: return 15           # כללי
+        if "וואלה"                   in s: return 20
+        if "מעריב"                   in s: return 10
+        if "N12"  in s or "מאקו"    in s: return 30
+        # ── זרות ──────────────────────────────────────────────────────
+        if "Guardian"                in s: return 20
+        if "NYT"                     in s: return 20
+        if "WSJ"                     in s: return 20
+        if "Jacobin"                 in s: return 20
+        if "Wafa"                    in s: return 15
+        if "AFP"                     in s: return 15   # AFP לפני AP!
+        if "AP"                      in s: return 15
+        if "Reuters"                 in s: return 15
+        # ── כל השאר ───────────────────────────────────────────────────
+        return 10
 
     # Sort by priority so top sources appear first
     unique.sort(key=lambda a: _priority(a["source"]))
 
-    # Apply per-source tiered cap
+    # Apply per-source specific cap
     source_count: dict = defaultdict(int)
     capped: list[dict] = []
     for a in unique:
         src = a["source"]
-        cap = _tier_cap(_priority(src))
+        cap = _source_cap(src)
         if source_count[src] < cap:
             capped.append(a)
             source_count[src] += 1
