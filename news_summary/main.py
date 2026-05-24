@@ -563,21 +563,60 @@ def collect_articles() -> list[dict]:
             seen.add(key)
             unique.append(a)
 
-    # Cap per source so no single outlet dominates (max 15 per named source)
+    # ── Priority ranking + tiered cap ────────────────────────────────────────
     from collections import defaultdict
-    MAX_PER_SOURCE = 15
+
+    def _priority(source: str) -> int:
+        """Lower = higher priority. Used for sorting and tier-cap lookup."""
+        s = source
+        # Hebrew priority
+        if "הארץ"        in s: return 1
+        if "דה מרקר"     in s: return 2
+        if "גלובס"       in s: return 3
+        if "כלכליסט"     in s: return 4
+        if "ynet"        in s.lower(): return 5
+        if "שיחה מקומית" in s: return 6
+        if "N12"         in s or "מאקו" in s: return 7
+        if "ישראל היום"  in s: return 8
+        if "וואלה"       in s: return 9
+        if "מעריב"       in s: return 10
+        # Foreign priority
+        if "Guardian"    in s: return 11
+        if "NYT"         in s: return 12
+        if "WSJ"         in s: return 13
+        if "Jacobin"     in s: return 14
+        if "Wafa"        in s: return 15
+        if s == "AP" or "AP " in s: return 16
+        if "AFP"         in s: return 17
+        if "Reuters"     in s: return 18
+        return 50
+
+    def _tier_cap(priority: int) -> int:
+        if priority <= 2:  return 20   # הארץ, דה מרקר
+        if priority <= 4:  return 15   # גלובס, כלכליסט
+        if priority <= 6:  return 12   # ynet, שיחה מקומית
+        if priority <= 10: return 8    # N12, ישראל היום, וואלה, מעריב
+        if priority <= 14: return 15   # Guardian, NYT, WSJ, Jacobin
+        if priority <= 18: return 10   # Wafa, AP, AFP, Reuters
+        return 8                       # שאר
+
+    # Sort by priority so top sources appear first
+    unique.sort(key=lambda a: _priority(a["source"]))
+
+    # Apply per-source tiered cap
     source_count: dict = defaultdict(int)
     capped: list[dict] = []
     for a in unique:
         src = a["source"]
-        if source_count[src] < MAX_PER_SOURCE:
+        cap = _tier_cap(_priority(src))
+        if source_count[src] < cap:
             capped.append(a)
             source_count[src] += 1
     unique = capped
 
-    print(f"\n📊 Unique relevant articles after cap: {len(unique)}")
-    for src, cnt in sorted(source_count.items(), key=lambda x: -x[1]):
-        print(f"   {src}: {cnt}")
+    print(f"\n📊 Articles after priority sort + tiered cap: {len(unique)}")
+    for src, cnt in sorted(source_count.items(), key=lambda x: _priority(x[0])):
+        print(f"   [{_priority(src):>2}] {src}: {cnt}")
     return unique
 
 
