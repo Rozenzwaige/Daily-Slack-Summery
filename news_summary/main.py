@@ -460,6 +460,46 @@ GALATZ_RSS = (
 KAN_RSS = "https://www.spreaker.com/show/6095076/episodes/feed"
 
 
+def _split_bulletin_to_items(segments, full_text: str, gap_seconds: float = 2.0) -> list[str]:
+    """
+    Split a Whisper verbose_json result into individual news items by detecting
+    silence/jingle gaps between segments.  A gap >= gap_seconds signals a new item.
+    Very short fragments (< 20 chars) are discarded — likely jingle artefacts.
+    """
+    if not segments:
+        return [full_text]
+
+    items: list[str] = []
+    current: list[str] = []
+
+    for i, seg in enumerate(segments):
+        # Groq returns segment objects; fall back to dict access just in case
+        text  = (seg.text  if hasattr(seg, "text")  else seg.get("text",  "")).strip()
+        end   =  seg.end   if hasattr(seg, "end")   else seg.get("end",   0)
+
+        if text:
+            current.append(text)
+
+        # Look ahead for a gap
+        if i + 1 < len(segments):
+            nxt        = segments[i + 1]
+            next_start = nxt.start if hasattr(nxt, "start") else nxt.get("start", 0)
+            gap        = next_start - end
+            if gap >= gap_seconds:
+                candidate = " ".join(current).strip()
+                if len(candidate) >= 20:
+                    items.append(candidate)
+                current = []
+
+    # Flush the last item
+    if current:
+        candidate = " ".join(current).strip()
+        if len(candidate) >= 20:
+            items.append(candidate)
+
+    return items if items else [full_text]
+
+
 def _transcribe_bulletins(
     rss_url: str,
     source_name: str,
@@ -468,8 +508,8 @@ def _transcribe_bulletins(
 ) -> list[dict]:
     """
     Generic helper: fetch recent bulletins from a podcast RSS feed and
-    transcribe each one with Groq Whisper.  Returns articles in the same
-    format used by the rest of the pipeline.
+    transcribe each one with Groq Whisper (verbose_json for timestamps).
+    Each individual news item within a bulletin becomes a separate article.
     """
     import tempfile
     from groq import Groq
@@ -513,22 +553,39 @@ def _transcribe_bulletins(
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                 f.write(r.content)
                 tmp = f.name
+
             with open(tmp, "rb") as audio_file:
                 result = groq_client.audio.transcriptions.create(
                     model="whisper-large-v3",
                     file=audio_file,
                     language="he",
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"],
                 )
             os.unlink(tmp)
+
             hour_str = (b["pub"] + timedelta(hours=3)).strftime("%H:%M")  # UTC→IDT
-            print(f"   ✅ Transcribed: {b['title']} ({len(result.text)} chars)")
-            articles.append({
-                "source": source_name,
-                "title": f"מהדורת חדשות {hour_str} — {source_name}",
-                "url": b["url"],
-                "text": result.text,
-                "published": b["pub"].isoformat(),
-            })
+            items = _split_bulletin_to_items(
+                getattr(result, "segments", []),
+                getattr(result, "text", ""),
+                gap_seconds=2.0,
+            )
+            print(f"   ✅ {hour_str} ({source_name}): {len(items)} items from {len(getattr(result,'segments',[]))} segments")
+
+            for idx, item_text in enumerate(items, 1):
+                # Use first sentence (up to 80 chars) as title
+                first_line = item_text.split(".")[0].strip()[:80]
+                articles.append({
+                    "source":    source_name,
+                    "title":     first_line or f"ידיעה {idx} — {hour_str} {source_name}",
+                    "url":       b["url"],
+                    "text":      item_text,
+                    "published": b["pub"].isoformat(),
+                    # Extra fields used by write_radio_to_sheet
+                    "_bulletin_hour": hour_str,
+                    "_item_index":    idx,
+                })
+
         except Exception as e:
             print(f"   ❌ Failed to transcribe {b['title']}: {e}")
 
@@ -598,7 +655,7 @@ def write_radio_to_sheet(radio_articles: list[dict]) -> None:
             }]})
             print(f"📋 Created tab '{_RADIO_TAB_NAME}'")
 
-        # Build rows (newest first — will be inserted at row 2)
+        # Build rows — one row per news item (newest first → inserted at row 2)
         rows = []
         for a in radio_articles:
             pub = a.get("published", "")
@@ -606,10 +663,10 @@ def write_radio_to_sheet(radio_articles: list[dict]) -> None:
                 dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
                 dt_idt = dt + timedelta(hours=3)          # UTC → IDT
                 date_str = dt_idt.strftime("%d/%m/%Y")
-                time_str = dt_idt.strftime("%H:%M")
             except Exception:
                 date_str = datetime.now().strftime("%d/%m/%Y")
-                time_str = ""
+            # Use the per-bulletin hour label (e.g. "07:00") stored by _transcribe_bulletins
+            time_str = a.get("_bulletin_hour", "")
             rows.append([
                 date_str,
                 time_str,
