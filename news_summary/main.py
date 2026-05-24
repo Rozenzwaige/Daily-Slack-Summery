@@ -500,22 +500,27 @@ def _split_bulletin_to_items(segments, full_text: str, gap_seconds: float = 2.0)
     return items if items else [full_text]
 
 
+# Morning radio hours to include in the Slack/WhatsApp summary
+MORNING_HOURS_IDT: frozenset[int] = frozenset({6, 7, 8})
+
+
 def _transcribe_bulletins(
     rss_url: str,
     source_name: str,
     groq_api_key: str,
-    max_bulletins: int = 3,
+    target_hours: frozenset[int] = MORNING_HOURS_IDT,
 ) -> list[dict]:
     """
-    Generic helper: fetch the most recent bulletins (within last 12 h) from a
-    podcast RSS feed and transcribe each with Groq Whisper (verbose_json).
-    Each individual news item within a bulletin becomes a separate article.
+    Fetch bulletins from a podcast RSS feed whose publication hour (IDT = UTC+3)
+    is in target_hours, then transcribe with Groq Whisper (verbose_json).
+    Looks back 6 h — enough to cover all morning bulletins when the script
+    runs at ~09:30 IDT (06:30 UTC).
     """
     import tempfile
     from groq import Groq
 
     groq_client = Groq(api_key=groq_api_key)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
 
     print(f"📻 Fetching {source_name} RSS...")
     feed = feedparser.parse(rss_url)
@@ -529,7 +534,10 @@ def _transcribe_bulletins(
             continue
         pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
         if pub < cutoff:
-            break
+            continue
+        pub_idt_hour = (pub + timedelta(hours=3)).hour
+        if pub_idt_hour not in target_hours:
+            continue
         audio_url = None
         for enc in getattr(entry, "enclosures", []):
             if enc.get("type", "").startswith("audio") or enc.get("url", "").endswith(".mp3"):
@@ -538,12 +546,11 @@ def _transcribe_bulletins(
         if audio_url:
             bulletins.append({"title": entry.title, "pub": pub, "url": audio_url})
 
-    bulletins = bulletins[:max_bulletins]
     if not bulletins:
-        print(f"   ⚠️  No recent {source_name} bulletins found")
+        print(f"   ⚠️  No {source_name} bulletins found for hours {sorted(target_hours)}")
         return []
 
-    print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
+    print(f"   Found {len(bulletins)} bulletin(s) for hours {sorted(target_hours)} — transcribing...")
 
     print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
     articles = []
@@ -687,14 +694,14 @@ def write_radio_to_sheet(radio_articles: list[dict]) -> None:
         print(f"⚠️  Failed to write radio transcripts to sheet: {e}")
 
 
-def fetch_galatz_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
-    """Fetch & transcribe the latest Galatz (גלי צה\"ל) hourly news bulletins."""
-    return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key, max_bulletins)
+def fetch_galatz_transcripts(groq_api_key: str) -> list[dict]:
+    """Fetch & transcribe Galatz (גלי צה\"ל) 6/7/8 morning bulletins for the summary."""
+    return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key)
 
 
-def fetch_kan_transcripts(groq_api_key: str, max_bulletins: int = 3) -> list[dict]:
-    """Fetch & transcribe the latest Kan Reshet Bet (כאן רשת ב) hourly news bulletins."""
-    return _transcribe_bulletins(KAN_RSS, "כאן — רשת ב", groq_api_key, max_bulletins)
+def fetch_kan_transcripts(groq_api_key: str) -> list[dict]:
+    """Fetch & transcribe Kan Reshet Bet (כאן רשת ב) 6/7/8 morning bulletins."""
+    return _transcribe_bulletins(KAN_RSS, "כאן — רשת ב", groq_api_key)
 
 
 # ─── Collect all articles ─────────────────────────────────────────────────────
@@ -805,14 +812,14 @@ def collect_articles() -> list[dict]:
     manual = read_slack_inputs()
     all_articles.extend(manual)
 
-    # 📻 Radio transcription — Galatz + Kan Reshet Bet (last 12 h only)
+    # 📻 Radio transcription — Galatz + Kan Reshet Bet, hours 6/7/8 IDT only
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if groq_key:
         for fetch_fn, label in [
             (fetch_galatz_transcripts, "גלי צה\"ל"),
             (fetch_kan_transcripts,    "כאן רשת ב"),
         ]:
-            radio = fetch_fn(groq_key, max_bulletins=3)
+            radio = fetch_fn(groq_key)
             all_articles.extend(radio)
             print(f"📻 Added {len(radio)} transcript(s) from {label}")
     else:
