@@ -55,7 +55,7 @@ executor = ThreadPoolExecutor(max_workers=10)
 # ─── RSS sources (fast — no heavy scraping) ───────────────────────────────────
 
 RSS_SOURCES = [
-    # עברית
+    # ─── עברית ────────────────────────────────────────────────────────────────
     ("ynet",               "https://www.ynet.co.il/Integration/StoryRss2.xml"),
     ("שיחה מקומית",         "https://www.mekomit.co.il/feed/"),
     ("הארץ",               "https://news.google.com/rss/search?q=site:haaretz.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
@@ -63,9 +63,13 @@ RSS_SOURCES = [
     ("גלובס — כלכלה",      "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=2"),
     ("גלובס — שוק ההון",   "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=585"),
     ("גלובס — עסקים",      "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=594"),
+    ("כלכליסט",            "https://news.google.com/rss/search?q=site:calcalist.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
     ("וואלה חדשות",         "https://rss.walla.co.il/feed/22"),
     ("וואלה כלכלה",         "https://rss.walla.co.il/feed/2"),
-    # בינלאומי — כלל עולמי
+    ("מעריב",              "https://news.google.com/rss/search?q=site:maariv.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
+    ("N12",                "https://news.google.com/rss/search?q=site:n12.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
+    ("ישראל היום",         "https://news.google.com/rss/search?q=site:israelhayom.co.il+when:2d&hl=he&gl=IL&ceid=IL:he"),
+    # ─── בינלאומי — כלל עולמי ─────────────────────────────────────────────────
     ("Al-Jazeera",         "https://www.aljazeera.com/xml/rss/all.xml"),
     ("NYT World",          "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
     ("NYT Middle East",    "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
