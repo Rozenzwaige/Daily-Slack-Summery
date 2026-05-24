@@ -2,8 +2,10 @@
 """
 איתמר — Standing Together News Bot
 ====================================
-Slack bot that answers news queries in Hebrew via DM.
-Users can ask for topic-specific news summaries for any time range.
+Slack bot that answers news queries in Hebrew.
+Works in two modes:
+  • DM — any message triggers a search
+  • Channel — responds only when mentioned (@איתמר), replies in a thread
 
 Example queries:
   "תביא לי מה קרה עם אלימות מתנחלים ביומיים האחרונים"
@@ -44,8 +46,9 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 @app.middleware
 async def log_all(body, next):
     evt = body.get("event", {})
-    print(f"🔵 PAYLOAD type={body.get('type')} event_type={evt.get('type')} channel_type={evt.get('channel_type')}", flush=True)
+    print(f"🔵 PAYLOAD type={body.get('type')} event_type={evt.get('type')} channel_type={evt.get('channel_type')} user={evt.get('user')}", flush=True)
     await next()
+
 
 # Thread pool for running blocking I/O without blocking the event loop
 executor = ThreadPoolExecutor(max_workers=10)
@@ -63,13 +66,17 @@ RSS_SOURCES = [
     ("גלובס — עסקים",      "https://www.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=594"),
     ("וואלה חדשות",         "https://rss.walla.co.il/feed/22"),
     ("וואלה כלכלה",         "https://rss.walla.co.il/feed/2"),
-    # בינלאומי
+    # בינלאומי — כלל עולמי
     ("Al-Jazeera",         "https://www.aljazeera.com/xml/rss/all.xml"),
+    ("NYT World",          "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
     ("NYT Middle East",    "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml"),
-    ("Guardian",           "https://www.theguardian.com/world/middleeast/rss"),
+    ("Guardian World",     "https://www.theguardian.com/world/rss"),
+    ("Guardian Mid-East",  "https://www.theguardian.com/world/middleeast/rss"),
+    ("BBC World",          "http://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("Reuters World",      "https://news.google.com/rss/search?q=site:reuters.com+when:2d&hl=en-US&gl=US&ceid=US:en"),
+    ("AP World",           "https://news.google.com/rss/search?q=site:apnews.com+when:2d&hl=en-US&gl=US&ceid=US:en"),
     ("Le Monde",           "https://www.lemonde.fr/en/rss/une.xml"),
-    ("Reuters",            "https://news.google.com/rss/search?q=site:reuters.com+(Israel+OR+Gaza+OR+Palestinian)+when:2d&hl=en-US&gl=US&ceid=US:en"),
-    ("AP",                 "https://news.google.com/rss/search?q=site:apnews.com+(Israel+OR+Gaza+OR+Palestinian)+when:2d&hl=en-US&gl=US&ceid=US:en"),
+    # בינלאומי — ישראל/עזה ספציפי
     ("AFP",                "https://news.google.com/rss/search?q=AFP+(Israel+OR+Gaza+OR+Palestinian)+when:2d&hl=en-US&gl=US&ceid=US:en"),
     ("Wafa",               "https://news.google.com/rss/search?q=site:wafa.ps+when:2d&hl=en-US&gl=US&ceid=US:en"),
 ]
@@ -160,7 +167,7 @@ INTENT_PROMPT = """\
 
 def parse_intent(user_text: str) -> dict:
     resp = claude.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5",
         max_tokens=400,
         messages=[{"role": "user", "content": INTENT_PROMPT.format(query=user_text)}],
     )
@@ -244,7 +251,7 @@ def summarize(articles: list[dict], topic_label: str, hours: int, user_query: st
         lines.append(line)
 
     resp = claude.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-haiku-4-5",
         max_tokens=1200,
         messages=[{
             "role": "user",
@@ -289,21 +296,21 @@ async def handle_home(event, client):
     )
 
 
-@app.message()
-async def handle_dm(message, say, client):
+@app.event("message")
+async def handle_dm(event, say, client):
     """Handle DMs sent directly to the bot."""
-    print(f"📨 message event: channel_type={message.get('channel_type')} bot_id={message.get('bot_id')} subtype={message.get('subtype')} text={message.get('text','')[:60]}", flush=True)
+    print(f"📨 message event: channel_type={event.get('channel_type')} bot_id={event.get('bot_id')} subtype={event.get('subtype')} text={event.get('text','')[:60]}", flush=True)
     # Ignore bot messages and non-DM channels
-    if message.get("bot_id") or message.get("subtype"):
+    if event.get("bot_id") or event.get("subtype"):
         return
-    if message.get("channel_type") != "im":
+    if event.get("channel_type") != "im":
         return
 
-    user_text = message.get("text", "").strip()
+    user_text = event.get("text", "").strip()
     if not user_text:
         return
 
-    channel = message["channel"]
+    channel = event["channel"]
     loop    = asyncio.get_event_loop()
 
     # Post initial status message (will be updated in-place)
@@ -359,8 +366,69 @@ async def handle_dm(message, say, client):
 # ─── App mention (in channels) ───────────────────────────────────────────────
 
 @app.event("app_mention")
-async def handle_mention(event, say):
-    await say("שלום! שלח לי *הודעה פרטית* ואשמח לסכם חדשות בשבילך 📰")
+async def handle_mention(event, say, client):
+    """Handle @איתמר mentions in channels — reply in a thread."""
+    if event.get("bot_id") or event.get("subtype"):
+        return
+
+    # Strip the bot mention tag (<@UXXXXXXX>) from the text
+    raw_text = event.get("text", "")
+    import re as _re
+    user_text = _re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
+
+    if not user_text:
+        await say(
+            text="שלום! תייג אותי עם שאלה, לדוגמה: _@איתמר מה קרה עם ארגוני עובדים השבוע?_ 📰",
+            thread_ts=event["ts"],
+        )
+        return
+
+    channel   = event["channel"]
+    thread_ts = event["ts"]          # reply inside the same thread
+    loop      = asyncio.get_event_loop()
+
+    status = await client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text="🔍 מחפש כתבות... (לוקח כ-15 שניות)",
+    )
+    msg_ts = status["ts"]
+
+    async def update(text: str):
+        await client.chat_update(channel=channel, ts=msg_ts, text=text)
+
+    try:
+        intent = await loop.run_in_executor(executor, parse_intent, user_text)
+
+        if not intent.get("is_news_query", True):
+            await update(WELCOME_MSG)
+            return
+
+        hours       = int(intent.get("hours", 48))
+        topic_label = intent.get("topic_label", "חדשות")
+        keywords    = intent.get("search_keywords", [])
+        period      = _period_label(hours)
+
+        await update(f"📡 מאסף כתבות על *{topic_label}* מ{period}...")
+
+        articles = await loop.run_in_executor(executor, collect_articles, hours)
+        filtered = filter_by_topic(articles, keywords)
+
+        await update(
+            f"✍️ מסכם {len(filtered)} כתבות על *{topic_label}* "
+            f"({len(articles)} כתבות נמצאו בסה\"כ)..."
+        )
+
+        summary = await loop.run_in_executor(
+            executor, summarize, filtered, topic_label, hours, user_text
+        )
+
+        header = f"📰 *{topic_label}* | {period}\n\n"
+        await update(header + summary)
+
+    except Exception as e:
+        print(f"Error handling mention: {e}", flush=True)
+        await update("😕 אירעה שגיאה. נסה שוב בעוד רגע.")
 
 
 # ─── Health check server (keeps Fly.io machine alive) ────────────────────────
