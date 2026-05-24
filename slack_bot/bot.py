@@ -149,7 +149,7 @@ def collect_articles(hours: int) -> list[dict]:
 
 INTENT_PROMPT = """\
 המשתמש שלח הודעה לבוט חדשות של ארגון "עומדים ביחד": "{query}"
-
+{context_line}
 ענה ב-JSON בלבד (ללא טקסט נוסף, ללא markdown):
 {{
   "is_news_query": <true אם מדובר בבקשה לחדשות / false אם זו שאלה אחרת>,
@@ -160,19 +160,27 @@ INTENT_PROMPT = """\
 
 כללים:
 - search_keywords: 5-10 מילות מפתח שיעזרו לסנן כתבות רלוונטיות (עברית ואנגלית)
+- אם ההודעה היא המשך שיחה (לדוגמה "אז בשבוע האחרון" / "נסה יותר") — שמור את אותו נושא וmילות מפתח מהשיחה הקודמת, רק עדכן את hours
 - אם המשתמש ביקש "חדשות כלליות" או "סיכום" ללא נושא ספציפי — search_keywords יהיה רשימה ריקה []
 - hours: עגל לאחד מהערכים: 6, 12, 24, 48, 72, 168, 720\
 """
 
 
-def parse_intent(user_text: str) -> dict:
+def parse_intent(user_text: str, prev_topic: str = "", prev_keywords: list | None = None) -> dict:
+    context_line = ""
+    if prev_topic:
+        kw_str = ", ".join(prev_keywords or [])
+        context_line = f'\nהקשר שיחה קודמת: הנושא היה "{prev_topic}" עם מילות מפתח: {kw_str}.\n'
+
     resp = claude.messages.create(
         model="claude-haiku-4-5",
         max_tokens=400,
-        messages=[{"role": "user", "content": INTENT_PROMPT.format(query=user_text)}],
+        messages=[{"role": "user", "content": INTENT_PROMPT.format(
+            query=user_text,
+            context_line=context_line,
+        )}],
     )
     raw = resp.content[0].text.strip()
-    # Strip markdown code fences if present
     if "```" in raw:
         raw = raw.split("```")[1].replace("json", "").strip()
     try:
@@ -181,8 +189,8 @@ def parse_intent(user_text: str) -> dict:
         return {
             "is_news_query": True,
             "hours": 48,
-            "topic_label": "חדשות",
-            "search_keywords": [],
+            "topic_label": prev_topic or "חדשות",
+            "search_keywords": prev_keywords or [],
         }
 
 
@@ -214,17 +222,17 @@ def _period_label(hours: int) -> str:
 SUMMARY_PROMPT = """\
 המשתמש שאל: "{query}"
 
-להלן {n} כתבות על הנושא "{topic}" מ{period}:
+להלן {n} כתבות שסוננו על הנושא "{topic}" מ{period}:
 
 {articles}
 
-צור סיכום תמציתי בעברית:
+הוראות:
+- סכם רק כתבות שקשורות ישירות לנושא "{topic}"
+- אם רוב הכתבות אינן קשורות לנושא, השב: "😕 לא מצאתי כתבות רלוונטיות על *{topic}* ב{period}. נסה טווח זמן רחב יותר או ניסוח אחר."
 - 4-7 נקודות עיקריות, לפי סדר חשיבות
 - משפט אחד עד שניים לכל נקודה
-- בסוף כל נקודה, קישור למקור בפורמט Slack: <URL|שם_מקור>
-  לדוגמה: • ישראל הכריזה על הפסקת אש. <https://ynet.co.il/...|ynet>
+- בסוף כל נקודה קישור למקור: <URL|שם_מקור>
 - אל תמציא מידע שאינו ברשימה
-- אם יש זוויות שונות לאותו אירוע — ציין אותן
 
 כתוב את הסיכום:\
 """
@@ -280,17 +288,16 @@ WELCOME_MSG = (
     "מה תרצה לדעת? 📰"
 )
 
-# Tracks (channel, thread_ts) pairs where the bot is actively participating.
+# Tracks active threads: (channel, thread_ts) → {"topic": str, "keywords": list}
 # Populated when the bot answers an @mention; cleared on restart.
-_active_threads: set[tuple[str, str]] = set()
+_active_threads: dict[tuple[str, str], dict] = {}
 
 
 async def _process_query(user_text: str, channel: str, thread_ts: str | None, client) -> None:
     """
     Core pipeline: intent → fetch → filter → summarize → reply.
-    Used by both the DM handler and the channel-thread handler.
-    thread_ts=None  →  plain DM reply (no thread)
-    thread_ts=<ts>  →  reply inside the given Slack thread
+    Passes previous thread context to Claude so follow-up messages
+    ("אז בשבוע האחרון") retain the original topic and keywords.
     """
     loop = asyncio.get_event_loop()
     post_kwargs = {"thread_ts": thread_ts} if thread_ts else {}
@@ -306,7 +313,14 @@ async def _process_query(user_text: str, channel: str, thread_ts: str | None, cl
         await client.chat_update(channel=channel, ts=msg_ts, text=text)
 
     try:
-        intent = await loop.run_in_executor(executor, parse_intent, user_text)
+        # Pull previous topic/keywords from thread context (if exists)
+        ctx          = _active_threads.get((channel, thread_ts), {}) if thread_ts else {}
+        prev_topic   = ctx.get("topic", "")
+        prev_kw      = ctx.get("keywords", [])
+
+        intent = await loop.run_in_executor(
+            executor, parse_intent, user_text, prev_topic, prev_kw
+        )
 
         if not intent.get("is_news_query", True):
             await update(WELCOME_MSG)
@@ -316,6 +330,13 @@ async def _process_query(user_text: str, channel: str, thread_ts: str | None, cl
         topic_label = intent.get("topic_label", "חדשות")
         keywords    = intent.get("search_keywords", [])
         period      = _period_label(hours)
+
+        # Save updated context for next follow-up
+        if thread_ts:
+            _active_threads[(channel, thread_ts)] = {
+                "topic":    topic_label,
+                "keywords": keywords,
+            }
 
         await update(f"📡 מאסף כתבות על *{topic_label}* מ{period}...")
 
@@ -384,7 +405,7 @@ async def handle_message(event, say, client):
 
     # ── Channel thread reply (no @mention needed) ─────────────────────────────
     # Respond if this message is a reply in a thread the bot is already in.
-    if thread_ts and thread_ts != msg_ts and (channel, thread_ts) in _active_threads:
+    if thread_ts and thread_ts != msg_ts and (channel, thread_ts) in _active_threads:  # noqa: E501
         await _process_query(user_text, channel, thread_ts, client)
 
 
@@ -408,7 +429,9 @@ async def handle_mention(event, say, client):
     thread_ts = event.get("thread_ts") or event["ts"]
 
     # Register thread so follow-up replies are handled without @mention
-    _active_threads.add((channel, thread_ts))
+    # Initialize with empty context (will be filled after first query)
+    if (channel, thread_ts) not in _active_threads:
+        _active_threads[(channel, thread_ts)] = {}
     print(f"🧵 Registered active thread ({channel}, {thread_ts})", flush=True)
 
     if not user_text:
