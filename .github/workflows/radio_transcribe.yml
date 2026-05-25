@@ -1,28 +1,10 @@
 name: Hourly Radio Transcription
 
 on:
-  schedule:
-    # Run at :20 past each target hour (IDT = UTC+3)
-    # 06:20 IDT = 03:20 UTC
-    - cron: "20 3 * * *"
-    # 07:20 IDT = 04:20 UTC
-    - cron: "20 4 * * *"
-    # 08:20 IDT = 05:20 UTC
-    - cron: "20 5 * * *"
-    # 12:20 IDT = 09:20 UTC
-    - cron: "20 9 * * *"
-    # 13:20 IDT = 10:20 UTC
-    - cron: "20 10 * * *"
-    # 18:20 IDT = 15:20 UTC
-    - cron: "20 15 * * *"
-    # 19:20 IDT = 16:20 UTC
-    - cron: "20 16 * * *"
-    # 20:20 IDT = 17:20 UTC
-    - cron: "20 17 * * *"
-    # 21:20 IDT = 18:20 UTC
-    - cron: "20 18 * * *"
-
-  workflow_dispatch:   # allow manual trigger from GitHub Actions UI
+  # Triggered externally by cron-job.org every hour at :20 UTC.
+  # The script (radio_to_sheet.py) checks internally whether the current
+  # IDT hour is a target hour and exits immediately if not.
+  workflow_dispatch:
 
 jobs:
   transcribe-radio:
