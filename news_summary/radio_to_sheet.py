@@ -34,7 +34,13 @@ GALATZ_RSS = (
 )
 KAN_RSS = "https://www.spreaker.com/show/6095076/episodes/feed"
 
-TARGET_HOURS_IDT: frozenset[int] = frozenset({6, 7, 8, 12, 13, 18, 19, 20, 21})
+# Per-station target hours (IDT = UTC+3)
+# כאן רשת ב — no evening bulletin at 19/20/21 worth transcribing
+GALATZ_HOURS: frozenset[int] = frozenset({6, 7, 8, 12, 13, 18, 19, 20, 21})
+KAN_HOURS:    frozenset[int] = frozenset({6, 7, 8, 12, 13, 18})
+
+# Union — used to decide whether to run at all this hour
+TARGET_HOURS_IDT: frozenset[int] = GALATZ_HOURS | KAN_HOURS
 
 _SHEET_TAB     = "תמלולי רדיו"
 _SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו"]
@@ -223,10 +229,13 @@ def main() -> None:
           f"({now_idt.strftime('%d/%m/%Y %H:%M')} IDT)...")
 
     all_articles: list[dict] = []
-    for rss_url, source_name in [
-        (GALATZ_RSS, 'גלי צה"ל — רדיו'),
-        (KAN_RSS,    "כאן — רשת ב"),
+    for rss_url, source_name, station_hours in [
+        (GALATZ_RSS, 'גלי צה"ל — רדיו', GALATZ_HOURS),
+        (KAN_RSS,    "כאן — רשת ב",      KAN_HOURS),
     ]:
+        if current_hour not in station_hours:
+            print(f"   ⏭️  {source_name} — skipping hour {current_hour:02d}")
+            continue
         try:
             articles = transcribe_bulletin(rss_url, source_name, current_hour)
             all_articles.extend(articles)
