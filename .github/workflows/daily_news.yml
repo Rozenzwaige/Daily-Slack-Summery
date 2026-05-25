@@ -1,13 +1,8 @@
 name: Daily News Summary
 
 on:
-  schedule:
-    # Primary:  01:13 UTC = 04:13 IDT — Sunday–Thursday
-    - cron: "13 1 * * 0,1,2,3,4"
-    # Backup:   01:37 UTC = 04:37 IDT — in case GitHub misses the primary trigger
-    - cron: "37 1 * * 0,1,2,3,4"
-
-  # Allow manual trigger from GitHub Actions UI
+  # Triggered externally by cron-job.org at 05:30 UTC (08:30 IDT) every Sun–Thu.
+  # GitHub Actions cron is unreliable; cron-job.org calls workflow_dispatch via API.
   workflow_dispatch:
 
 jobs:
