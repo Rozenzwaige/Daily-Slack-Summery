@@ -51,11 +51,11 @@ jobs:
 
       - name: Checkout repository
         if: steps.guard.outputs.skip != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python 3.11
         if: steps.guard.outputs.skip != 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -67,7 +67,7 @@ jobs:
 
       - name: Restore seen-articles cache
         if: steps.guard.outputs.skip != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: news_summary/seen_articles.json
           key: seen-articles-${{ github.run_id }}
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload articles debug artifact
         if: steps.guard.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: articles-debug-${{ github.run_id }}
           path: news_summary/articles_debug.json
