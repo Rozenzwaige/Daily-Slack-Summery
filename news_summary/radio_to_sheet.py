@@ -28,18 +28,15 @@ import requests
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-# Whisper prompt — seeds domain vocabulary so the model spells Hebrew terms correctly.
-# Keep under 224 tokens (~500 chars). Uses actual broadcast phrases so Whisper
-# "hears" them first and prefers these spellings.
-# Groq Whisper limit: 896 characters. Prioritise terms that cause the worst
-# phonetic errors; Claude post-processing handles the rest.
+# Groq Whisper limit: 896 UTF-8 bytes. Hebrew chars = 2 bytes each.
+# Keep highest-impact phonetic terms; Claude _process_story() handles the rest.
 _WHISPER_PROMPT = (
-    'גלי צה"ל מירושלים שלום רב, כאן חדשות, כאן רשת ב\', קול ישראל מירושלים שלום רב. '
+    'גלי צה"ל, כאן חדשות, כאן רשת ב\', קול ישראל מירושלים שלום רב. '
     'הרמטכ"ל, מצה"ל נמסר, כוחותינו, דובר צה"ל, אלוף במילואים, כטב"ם. '
-    'כלי טייס עויין, כלי טייס בלתי מאויש, מרחפן נפץ, אזעקות, טיל נ"מ, התפוצץ. '
+    'כלי טייס עויין, כלי טייס בלתי מאויש, מרחפן נפץ, אזעקות, טיל נ"מ. '
     'נתניהו, גלנט, בן גביר, סמוטריץ\', זמיר, הרצוג, עמידרור, אזולאי. '
-    'טהראן, מטולה, ג\'נין, רפיח, דרום לבנון, חיזבאללה, בבאר שבע. '
-    'משא ומתן, תוכנית הגרעין, לפני כשעה, שלשום, אמש, בתוך כך, כלשונו, המוצע. '
+    'טהראן, מטולה, ג\'נין, רפיח, דרום לבנון, חיזבאללה, באר שבע. '
+    'משא ומתן, תוכנית הגרעין, לפני כשעה, שלשום, אמש, בתוך כך, כלשונו. '
     'נפתלי מנשה, דורון קדוש, רן יבנאי, כתבתנו, ולסיום, כאן תחזית. '
     'מד"א, שב"כ, מזג האוויר, מחדר החדשות, בית המשפט העליון, ביישומון. '
 )
