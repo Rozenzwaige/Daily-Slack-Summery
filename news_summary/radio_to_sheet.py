@@ -394,6 +394,9 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
                 gap_seconds=1.0,   # Galatz plays ~1 s of music between stories
             )
 
+        # Drop raw items that are clearly jingle/music hallucinations (< 30 chars)
+        story_raw_items = [s for s in story_raw_items if len(s.strip()) >= 30]
+
         # Claude Haiku: fix phonetic errors + generate headline for each story item
         print(f"   ✏️  Processing {len(story_raw_items)} story item(s) with Claude Haiku...")
         processed = [_process_story(item) for item in story_raw_items]
@@ -401,25 +404,25 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
         # Clean the title block for ידיעה 1 (title = text = full block, no short headline)
         _, cleaned_title = _process_story(raw_title_block) if raw_title_block else ("", "")
 
-        total = 1 + len(processed)
-        print(f"   ✅ {source_name} {hour_str}: {total} news items")
-
         articles = []
 
         # ידיעה 1: כותרת ותמלול זהים (headlines block for Kan / first story for Galatz)
         block = cleaned_title or (processed[0][1] if processed else "")
-        articles.append({
-            "source":         source_name,
-            "title":          block,
-            "url":            audio_url,
-            "text":           block,
-            "published":      pub.isoformat(),
-            "_bulletin_hour": hour_str,
-            "_item_index":    1,
-        })
+        if len(block.strip()) >= 30:   # skip if jingle was misread as the whole title block
+            articles.append({
+                "source":         source_name,
+                "title":          block,
+                "url":            audio_url,
+                "text":           block,
+                "published":      pub.isoformat(),
+                "_bulletin_hour": hour_str,
+                "_item_index":    1,
+            })
 
         # ידיעות 2+: short generated headline in D, full cleaned text in E
         for idx, (headline, cleaned_text) in enumerate(processed, 2):
+            if len(cleaned_text.strip()) < 30:   # skip jingle hallucinations
+                continue
             articles.append({
                 "source":         source_name,
                 "title":          headline,
@@ -430,6 +433,7 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
                 "_item_index":    idx,
             })
 
+        print(f"   ✅ {source_name} {hour_str}: {len(articles)} news items")
         return articles  # one episode per hour per station
 
     print(f"   ⚠️  No bulletin found for {source_name} at {target_hour_idt:02d}:00 IDT")
