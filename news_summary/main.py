@@ -448,260 +448,78 @@ def read_slack_inputs() -> list[dict]:
         return []
 
 
-# ─── Radio transcription (Galatz + Kan Reshet Bet) ───────────────────────────
+# ─── Radio — read morning bulletins from Google Sheet ────────────────────────
 
-GALATZ_RSS = (
-    "https://www.omnycontent.com/d/playlist/"
-    "6dcbc33f-1fb6-49de-9ae2-ad8a00c01523/"
-    "642b5ea6-ce25-4da0-94b8-ade800c22a62/"
-    "e9ba2fce-8956-400c-b84e-ade800c27a87/podcast.rss"
-)
-
-KAN_RSS = "https://www.spreaker.com/show/6095076/episodes/feed"
-
-
-def _split_bulletin_to_items(segments, full_text: str, gap_seconds: float = 2.0) -> list[str]:
+def read_morning_radio_from_sheet() -> list[dict]:
     """
-    Split a Whisper verbose_json result into individual news items by detecting
-    silence/jingle gaps between segments.  A gap >= gap_seconds signals a new item.
-    Very short fragments (< 20 chars) are discarded — likely jingle artefacts.
+    Read today's 06:00/07:00/08:00 IDT radio bulletins from the 'תמלולי רדיו'
+    Google Sheet tab (written there by radio_to_sheet.py, which runs at :20 past
+    each target hour).
+
+    Returns articles in the same dict format as other collect_articles() sources
+    so they appear in articles_debug.json and are included in the daily summary.
     """
-    if not segments:
-        return [full_text]
-
-    items: list[str] = []
-    current: list[str] = []
-
-    for i, seg in enumerate(segments):
-        # Groq returns segment objects; fall back to dict access just in case
-        text  = (seg.text  if hasattr(seg, "text")  else seg.get("text",  "")).strip()
-        end   =  seg.end   if hasattr(seg, "end")   else seg.get("end",   0)
-
-        if text:
-            current.append(text)
-
-        # Look ahead for a gap
-        if i + 1 < len(segments):
-            nxt        = segments[i + 1]
-            next_start = nxt.start if hasattr(nxt, "start") else nxt.get("start", 0)
-            gap        = next_start - end
-            if gap >= gap_seconds:
-                candidate = " ".join(current).strip()
-                if len(candidate) >= 20:
-                    items.append(candidate)
-                current = []
-
-    # Flush the last item
-    if current:
-        candidate = " ".join(current).strip()
-        if len(candidate) >= 20:
-            items.append(candidate)
-
-    return items if items else [full_text]
-
-
-# Morning radio hours to include in the Slack/WhatsApp summary
-MORNING_HOURS_IDT: frozenset[int] = frozenset({6, 7, 8})
-
-
-def _transcribe_bulletins(
-    rss_url: str,
-    source_name: str,
-    groq_api_key: str,
-    target_hours: frozenset[int] = MORNING_HOURS_IDT,
-) -> list[dict]:
-    """
-    Fetch bulletins from a podcast RSS feed whose publication hour (IDT = UTC+3)
-    is in target_hours, then transcribe with Groq Whisper (verbose_json).
-    Looks back 6 h — enough to cover all morning bulletins when the script
-    runs at ~09:30 IDT (06:30 UTC).
-    """
-    import tempfile
-    from groq import Groq
-
-    groq_client = Groq(api_key=groq_api_key)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
-
-    print(f"📻 Fetching {source_name} RSS...")
-    feed = feedparser.parse(rss_url)
-    if not feed.entries:
-        print(f"   ⚠️  No entries found for {source_name}")
-        return []
-
-    bulletins = []
-    for entry in feed.entries:
-        if not hasattr(entry, "published_parsed") or not entry.published_parsed:
-            continue
-        pub = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
-        if pub < cutoff:
-            continue
-        pub_idt_hour = (pub + timedelta(hours=3)).hour
-        if pub_idt_hour not in target_hours:
-            continue
-        audio_url = None
-        for enc in getattr(entry, "enclosures", []):
-            if enc.get("type", "").startswith("audio") or enc.get("url", "").endswith(".mp3"):
-                audio_url = enc["url"]
-                break
-        if audio_url:
-            bulletins.append({"title": entry.title, "pub": pub, "url": audio_url})
-
-    if not bulletins:
-        print(f"   ⚠️  No {source_name} bulletins found for hours {sorted(target_hours)}")
-        return []
-
-    print(f"   Found {len(bulletins)} bulletin(s) for hours {sorted(target_hours)} — transcribing...")
-
-    print(f"   Found {len(bulletins)} bulletin(s) — transcribing...")
-    articles = []
-    for b in bulletins:
-        try:
-            r = requests.get(b["url"], timeout=60, allow_redirects=True)
-            r.raise_for_status()
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                f.write(r.content)
-                tmp = f.name
-
-            with open(tmp, "rb") as audio_file:
-                result = groq_client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=audio_file,
-                    language="he",
-                    response_format="verbose_json",
-                    timestamp_granularities=["segment"],
-                )
-            os.unlink(tmp)
-
-            hour_str = (b["pub"] + timedelta(hours=3)).strftime("%H:%M")  # UTC→IDT
-            items = _split_bulletin_to_items(
-                getattr(result, "segments", []),
-                getattr(result, "text", ""),
-                gap_seconds=2.0,
-            )
-            print(f"   ✅ {hour_str} ({source_name}): {len(items)} items from {len(getattr(result,'segments',[]))} segments")
-
-            for idx, item_text in enumerate(items, 1):
-                # Use first sentence (up to 80 chars) as title
-                first_line = item_text.split(".")[0].strip()[:80]
-                articles.append({
-                    "source":    source_name,
-                    "title":     first_line or f"ידיעה {idx} — {hour_str} {source_name}",
-                    "link":      b["url"],   # used by dedup + summarize
-                    "summary":   item_text[:200],
-                    "url":       b["url"],
-                    "text":      item_text,
-                    "published": b["pub"].isoformat(),
-                    # Extra fields used by write_radio_to_sheet
-                    "_bulletin_hour": hour_str,
-                    "_item_index":    idx,
-                })
-
-        except Exception as e:
-            print(f"   ❌ Failed to transcribe {b['title']}: {e}")
-
-    return articles
-
-
-# ─── Google Sheets — radio transcripts ───────────────────────────────────────
-
-_RADIO_SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו"]
-_RADIO_TAB_NAME      = "תמלולי רדיו"
-
-
-def write_radio_to_sheet(radio_articles: list[dict]) -> None:
-    """
-    Write radio transcriptions to a dedicated Google Sheet.
-    Uses GOOGLE_CREDENTIALS_JSON + RADIO_SHEET_ID env vars.
-    If RADIO_SHEET_ID is not set, creates a new sheet automatically
-    and prints its URL to the log.
-    """
-    if not radio_articles:
-        return
-
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-    if not creds_json:
-        print("⚠️  GOOGLE_CREDENTIALS_JSON not set — skipping sheet write")
-        return
+    sheet_id   = os.environ.get("RADIO_SHEET_ID", "").strip()
+    if not creds_json or not sheet_id:
+        print("   ⚠️  GOOGLE_CREDENTIALS_JSON or RADIO_SHEET_ID not set — skipping radio")
+        return []
 
     try:
         import gspread
-        import json as _json
         from google.oauth2.service_account import Credentials as _Credentials
 
         creds = _Credentials.from_service_account_info(
-            _json.loads(creds_json),
+            json.loads(creds_json),
             scopes=[
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive",
             ],
         )
-        client = gspread.authorize(creds)
+        client  = gspread.authorize(creds)
+        ws      = client.open_by_key(sheet_id).worksheet("תמלולי רדיו")
+        rows    = ws.get_all_records()   # list[dict] keyed by header row
 
-        sheet_id = os.environ.get("RADIO_SHEET_ID", "").strip()
-        if sheet_id:
-            sh = client.open_by_key(sheet_id)
-        else:
-            sh = client.create("Standing Together — תמלולי רדיו")
-            sh.share(None, perm_type="anyone", role="writer")
-            print(f"⚠️  Created new Google Sheet — add this secret to the repo:")
-            print(f"    RADIO_SHEET_ID = {sh.id}")
-            print(f"🔗  URL: https://docs.google.com/spreadsheets/d/{sh.id}")
+        today_str     = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%d/%m/%Y")
+        morning_hours = {"06:00", "07:00", "08:00"}
 
-        # Ensure the tab exists with headers
-        try:
-            ws = sh.worksheet(_RADIO_TAB_NAME)
-        except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title=_RADIO_TAB_NAME, rows=2000, cols=6)
-            ws.append_row(_RADIO_SHEET_HEADERS, value_input_option="RAW")
-            # Right-to-left direction
-            sh.batch_update({"requests": [{
-                "updateSheetProperties": {
-                    "properties": {
-                        "sheetId": ws.id,
-                        "rightToLeft": True,
-                    },
-                    "fields": "rightToLeft",
-                }
-            }]})
-            print(f"📋 Created tab '{_RADIO_TAB_NAME}'")
-
-        # Build rows — one row per news item (newest first → inserted at row 2)
-        rows = []
-        for a in radio_articles:
-            pub = a.get("published", "")
+        articles = []
+        for row in rows:
+            if row.get("תאריך") != today_str:
+                continue
+            if row.get("שעה") not in morning_hours:
+                continue
+            text   = str(row.get("תמלול",       "")).strip()
+            title  = str(row.get("כותרת",        "")).strip()
+            source = str(row.get("תחנה",         "")).strip()
+            url    = str(row.get("קובץ אודיו",   "")).strip()
+            hour   = str(row.get("שעה",          "")).strip()
+            if not text:
+                continue
+            # Reconstruct an approximate published datetime (today IDT → UTC ISO)
             try:
-                dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
-                dt_idt = dt + timedelta(hours=3)          # UTC → IDT
-                date_str = dt_idt.strftime("%d/%m/%Y")
+                dt_idt = datetime.strptime(f"{today_str} {hour}", "%d/%m/%Y %H:%M")
+                published = (dt_idt - timedelta(hours=3)).replace(tzinfo=timezone.utc).isoformat()
             except Exception:
-                date_str = datetime.now().strftime("%d/%m/%Y")
-            # Use the per-bulletin hour label (e.g. "07:00") stored by _transcribe_bulletins
-            time_str = a.get("_bulletin_hour", "")
-            rows.append([
-                date_str,
-                time_str,
-                a.get("source", ""),
-                a.get("title", ""),
-                a.get("text", ""),
-                a.get("url", ""),
-            ])
+                published = datetime.now(timezone.utc).isoformat()
 
-        if rows:
-            ws.insert_rows(rows, row=2, value_input_option="USER_ENTERED")
-            print(f"📋 Wrote {len(rows)} radio transcript(s) to Google Sheet")
+            articles.append({
+                "source":         source,
+                "title":          title or text.split(".")[0].strip()[:80],
+                "link":           url,
+                "summary":        text[:200],
+                "url":            url,
+                "text":           text,
+                "published":      published,
+                "_bulletin_hour": hour,
+            })
+
+        print(f"   📻 Read {len(articles)} morning radio bulletin(s) from sheet")
+        return articles
 
     except Exception as e:
-        print(f"⚠️  Failed to write radio transcripts to sheet: {e}")
-
-
-def fetch_galatz_transcripts(groq_api_key: str) -> list[dict]:
-    """Fetch & transcribe Galatz (גלי צה\"ל) 6/7/8 morning bulletins for the summary."""
-    return _transcribe_bulletins(GALATZ_RSS, 'גלי צה"ל — רדיו', groq_api_key)
-
-
-def fetch_kan_transcripts(groq_api_key: str) -> list[dict]:
-    """Fetch & transcribe Kan Reshet Bet (כאן רשת ב) 6/7/8 morning bulletins."""
-    return _transcribe_bulletins(KAN_RSS, "כאן — רשת ב", groq_api_key)
+        print(f"   ⚠️  Failed to read morning radio from sheet: {e}")
+        return []
 
 
 # ─── Collect all articles ─────────────────────────────────────────────────────
@@ -812,18 +630,11 @@ def collect_articles() -> list[dict]:
     manual = read_slack_inputs()
     all_articles.extend(manual)
 
-    # 📻 Radio transcription — Galatz + Kan Reshet Bet, hours 6/7/8 IDT only
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    if groq_key:
-        for fetch_fn, label in [
-            (fetch_galatz_transcripts, "גלי צה\"ל"),
-            (fetch_kan_transcripts,    "כאן רשת ב"),
-        ]:
-            radio = fetch_fn(groq_key)
-            all_articles.extend(radio)
-            print(f"📻 Added {len(radio)} transcript(s) from {label}")
-    else:
-        print("⚠️  GROQ_API_KEY not set — skipping radio transcription")
+    # 📻 Radio — read today's 6/7/8 bulletins from Google Sheet
+    # (transcribed hourly by radio_to_sheet.py; already Claude-cleaned)
+    print("📻 Reading morning radio bulletins (06/07/08) from Google Sheet...")
+    radio = read_morning_radio_from_sheet()
+    all_articles.extend(radio)
 
     # Deduplicate by normalised title prefix
     seen: set[str] = set()
@@ -860,9 +671,9 @@ def collect_articles() -> list[dict]:
         if s == "AP" or "AP " in s: return 16
         if "AFP"         in s: return 17
         if "Reuters"     in s: return 18
-        # Radio
-        if "גלי צה"      in s: return 20
-        if "כאן — רשת"   in s: return 21
+        # Radio (station names from radio_to_sheet.py: 'גל"צ' / 'רשת ב')
+        if 'גל"צ'  in s or "גלי צה"   in s: return 20
+        if "רשת ב" in s or "כאן — רשת" in s: return 21
         return 50
 
     def _source_cap(source: str) -> int:
@@ -893,8 +704,8 @@ def collect_articles() -> list[dict]:
         if "AP"                      in s: return 15
         if "Reuters"                 in s: return 15
         # ── רדיו ──────────────────────────────────────────────────────
-        if "גלי צה"                  in s: return 20   # 9 מהדורות × ~5 ידיעות
-        if "כאן — רשת"               in s: return 20
+        if 'גל"צ'  in s or "גלי צה"   in s: return 20
+        if "רשת ב" in s or "כאן — רשת" in s: return 20
         # ── כל השאר ───────────────────────────────────────────────────
         return 10
 
