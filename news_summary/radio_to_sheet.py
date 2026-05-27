@@ -60,7 +60,55 @@ KAN_HOURS:    frozenset[int] = _ALL_HOURS
 TARGET_HOURS_IDT: frozenset[int] = _ALL_HOURS
 
 _SHEET_TAB     = "תמלולי רדיו"
-_SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו"]
+_SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו", "זמן התחלה"]
+
+
+# ─── Timestamp helpers ────────────────────────────────────────────────────────
+
+def _build_time_index(segments) -> list[tuple[int, float]]:
+    """
+    Build a list of (cumulative_char_position, start_time_seconds) from Whisper segments.
+    Lets us find the start time of any substring of the transcript.
+    """
+    index: list[tuple[int, float]] = []
+    pos = 0
+    for seg in segments:
+        text  = (seg.text  if hasattr(seg, "text")  else seg.get("text",  "")).strip()
+        start =  seg.start if hasattr(seg, "start") else seg.get("start", 0)
+        index.append((pos, float(start)))
+        pos += len(text) + 1   # +1 for the space used when joining
+    return index
+
+
+def _find_start_sec(item_text: str, full_text: str,
+                    time_index: list[tuple[int, float]]) -> float:
+    """
+    Return the Whisper segment start-time (seconds) for the beginning of item_text.
+    Searches the first 50 chars of item_text in full_text, then maps the char
+    position to a segment timestamp via binary-search-style walk.
+    """
+    if not time_index:
+        return 0.0
+    for n in (50, 25, 15):
+        pos = full_text.find(item_text[:n].strip())
+        if pos >= 0:
+            break
+    else:
+        return 0.0
+    # Walk the index: last entry whose char_pos <= pos
+    start_sec = 0.0
+    for char_pos, seg_start in time_index:
+        if char_pos <= pos:
+            start_sec = seg_start
+        else:
+            break
+    return start_sec
+
+
+def _fmt_ts(secs: float) -> str:
+    """Format seconds as MM:SS (e.g. 125.3 → '02:05')."""
+    m, s = divmod(int(secs), 60)
+    return f"{m:02d}:{s:02d}"
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -369,8 +417,11 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
             )
         os.unlink(tmp)
 
-        full_raw_text = getattr(result, "text", "")
-        hour_str = f"{target_hour_idt:02d}:00"
+        orig_full_text = getattr(result, "text", "")
+        full_raw_text  = orig_full_text
+        segments       = getattr(result, "segments", [])
+        time_index     = _build_time_index(segments)
+        hour_str       = f"{target_hour_idt:02d}:00"
 
         if "כאן" in source_name or "רשת ב" in source_name:
             # ── כאן רשת ב' ────────────────────────────────────────────────────
@@ -389,7 +440,7 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
             # Silence-gap splitting; title block extracted via regex
             raw_title_block = _extract_bulletin_title(full_raw_text, source_name)
             story_raw_items = _split_bulletin(
-                getattr(result, "segments", []),
+                segments,
                 full_raw_text,
                 gap_seconds=1.0,   # Galatz plays ~1 s of music between stories
             )
@@ -409,6 +460,7 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
         # ידיעה 1: כותרת ותמלול זהים (headlines block for Kan / first story for Galatz)
         block = cleaned_title or (processed[0][1] if processed else "")
         if len(block.strip()) >= 30:   # skip if jingle was misread as the whole title block
+            ts1 = _fmt_ts(_find_start_sec(raw_title_block, orig_full_text, time_index))
             articles.append({
                 "source":         source_name,
                 "title":          block,
@@ -417,12 +469,16 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
                 "published":      pub.isoformat(),
                 "_bulletin_hour": hour_str,
                 "_item_index":    1,
+                "_start_ts":      ts1,
             })
 
         # ידיעות 2+: short generated headline in D, full cleaned text in E
-        for idx, (headline, cleaned_text) in enumerate(processed, 2):
+        for idx, ((headline, cleaned_text), raw_item) in enumerate(
+            zip(processed, story_raw_items), 2
+        ):
             if len(cleaned_text.strip()) < 30:   # skip jingle hallucinations
                 continue
+            ts = _fmt_ts(_find_start_sec(raw_item, orig_full_text, time_index))
             articles.append({
                 "source":         source_name,
                 "title":          headline,
@@ -431,6 +487,7 @@ def transcribe_bulletin(rss_url: str, source_name: str, target_hour_idt: int) ->
                 "published":      pub.isoformat(),
                 "_bulletin_hour": hour_str,
                 "_item_index":    idx,
+                "_start_ts":      ts,
             })
 
         print(f"   ✅ {source_name} {hour_str}: {len(articles)} news items")
@@ -477,6 +534,13 @@ def write_to_sheet(articles: list[dict]) -> None:
             }]})
             print(f"📋 Created tab '{_SHEET_TAB}'")
 
+        # Ensure column G header exists (safe to run every time)
+        try:
+            if ws.cell(1, 7).value != "זמן התחלה":
+                ws.update_cell(1, 7, "זמן התחלה")
+        except Exception:
+            pass
+
         rows = []
         for a in articles:
             try:
@@ -491,6 +555,7 @@ def write_to_sheet(articles: list[dict]) -> None:
                 a.get("title", ""),
                 a.get("text", ""),
                 a.get("url", ""),
+                a.get("_start_ts", ""),   # G — MM:SS offset in the audio file
             ])
 
         if rows:

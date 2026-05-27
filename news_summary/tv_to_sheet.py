@@ -33,7 +33,7 @@ _KALTURA_PID   = "2346261"     # Kaltura partner ID for reshet.tv
 _AUDIO_SECONDS = 600           # first 10 minutes
 _STATION_NAME  = "רשת 13"
 _SHEET_TAB     = "תמלולי טלויזיה"
-_SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו"]
+_SHEET_HEADERS = ["תאריך", "שעה", "תחנה", "כותרת", "תמלול", "קובץ אודיו", "זמן התחלה"]
 
 # Whisper prompt — same vocab as radio, 862 UTF-8 bytes (Groq limit: 896)
 _WHISPER_PROMPT = (
@@ -172,6 +172,43 @@ def _download_audio_segment(stream_url: str, duration_sec: int = _AUDIO_SECONDS)
         err = result.stderr.decode("utf-8", errors="replace")
         raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {err[:300]}")
     return out_path
+
+
+# ─── Timestamp helpers (mirrors radio_to_sheet) ───────────────────────────────
+
+def _build_time_index(segments) -> list[tuple[int, float]]:
+    index: list[tuple[int, float]] = []
+    pos = 0
+    for seg in segments:
+        text  = (seg.text  if hasattr(seg, "text")  else seg.get("text",  "")).strip()
+        start =  seg.start if hasattr(seg, "start") else seg.get("start", 0)
+        index.append((pos, float(start)))
+        pos += len(text) + 1
+    return index
+
+
+def _find_start_sec(item_text: str, full_text: str,
+                    time_index: list[tuple[int, float]]) -> float:
+    if not time_index:
+        return 0.0
+    for n in (50, 25, 15):
+        pos = full_text.find(item_text[:n].strip())
+        if pos >= 0:
+            break
+    else:
+        return 0.0
+    start_sec = 0.0
+    for char_pos, seg_start in time_index:
+        if char_pos <= pos:
+            start_sec = seg_start
+        else:
+            break
+    return start_sec
+
+
+def _fmt_ts(secs: float) -> str:
+    m, s = divmod(int(secs), 60)
+    return f"{m:02d}:{s:02d}"
 
 
 # ─── Story processing (shared logic with radio_to_sheet) ─────────────────────
@@ -341,6 +378,9 @@ def transcribe_episode(episode: dict) -> list[dict]:
         print("   ⚠️  Empty transcript — skipping")
         return []
 
+    segments   = getattr(result, "segments", [])
+    time_index = _build_time_index(segments)
+
     # Split into raw story items; filter jingle hallucinations
     raw_items = [i for i in _split_tv_stories(full_text) if len(i.strip()) >= 30]
     if not raw_items:
@@ -365,26 +405,30 @@ def transcribe_episode(episode: dict) -> list[dict]:
     story_raws    = raw_items[1:]
     _, cleaned_t  = _process_story(raw_title)
     if len(cleaned_t.strip()) >= 30:
+        ts1 = _fmt_ts(_find_start_sec(raw_title, full_text, time_index))
         articles.append({
-            "source":  _STATION_NAME,
-            "title":   cleaned_t,
-            "text":    cleaned_t,
-            "url":     episode["episode_url"],
-            "_date":   date_str,
-            "_hour":   hour_str,
+            "source":    _STATION_NAME,
+            "title":     cleaned_t,
+            "text":      cleaned_t,
+            "url":       episode["episode_url"],
+            "_date":     date_str,
+            "_hour":     hour_str,
+            "_start_ts": ts1,
         })
 
     # ידיעות 2+: כותרת קצרה + תמלול מלא
-    for headline, cleaned_text in [_process_story(s) for s in story_raws]:
+    for raw_s, (headline, cleaned_text) in zip(story_raws, [_process_story(s) for s in story_raws]):
         if len(cleaned_text.strip()) < 30:
             continue
+        ts = _fmt_ts(_find_start_sec(raw_s, full_text, time_index))
         articles.append({
-            "source":  _STATION_NAME,
-            "title":   headline,
-            "text":    cleaned_text,
-            "url":     episode["episode_url"],
-            "_date":   date_str,
-            "_hour":   hour_str,
+            "source":    _STATION_NAME,
+            "title":     headline,
+            "text":      cleaned_text,
+            "url":       episode["episode_url"],
+            "_date":     date_str,
+            "_hour":     hour_str,
+            "_start_ts": ts,
         })
 
     print(f"   ✅ {_STATION_NAME} {hour_str} ({date_str}): {len(articles)} item(s)")
@@ -421,7 +465,7 @@ def write_to_sheet(articles: list[dict]) -> None:
         try:
             ws = sh.worksheet(_SHEET_TAB)
         except gspread.WorksheetNotFound:
-            ws = sh.add_worksheet(title=_SHEET_TAB, rows=5000, cols=6)
+            ws = sh.add_worksheet(title=_SHEET_TAB, rows=5000, cols=7)
             ws.append_row(_SHEET_HEADERS, value_input_option="RAW")
             sh.batch_update({"requests": [{
                 "updateSheetProperties": {
@@ -431,14 +475,22 @@ def write_to_sheet(articles: list[dict]) -> None:
             }]})
             print(f"📋 Created tab '{_SHEET_TAB}'")
 
+        # Ensure column G header exists
+        try:
+            if ws.cell(1, 7).value != "זמן התחלה":
+                ws.update_cell(1, 7, "זמן התחלה")
+        except Exception:
+            pass
+
         rows = [
             [
-                a.get("_date",  ""),
-                a.get("_hour",  ""),
-                a.get("source", ""),
-                a.get("title",  ""),
-                a.get("text",   ""),
-                a.get("url",    ""),
+                a.get("_date",     ""),
+                a.get("_hour",     ""),
+                a.get("source",    ""),
+                a.get("title",     ""),
+                a.get("text",      ""),
+                a.get("url",       ""),
+                a.get("_start_ts", ""),   # G — MM:SS offset in the audio file
             ]
             for a in articles
         ]
