@@ -211,6 +211,43 @@ def _fmt_ts(secs: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+# ─── Preamble stripper ───────────────────────────────────────────────────────
+
+# Markers that signal the end of the opening teaser / anchor intro and the
+# start of the actual headlines block.  We try them in order and cut at the
+# first match found.  The search is intentionally loose (partial match) to
+# handle slight Whisper transcription variations.
+_HEADLINES_MARKERS = [
+    "כותרות המהדורה",
+    "כותרות המעדורה",   # common Whisper mis-transcription
+    "כותרי המהדורה",
+    "כתבי החדשות 13, כות",
+    "כתבי החדשות 13, כת",
+    "כותרות הערב",
+]
+
+def _strip_preamble(text: str) -> str:
+    """
+    Strip the opening teaser / intro monologue that appears before the actual
+    headlines block.  Channel 13's 20:00 bulletin typically opens with ~90 s
+    of anchor teaser + Whisper hallucinations (sometimes Arabic-sounding text)
+    before the proper 'כותרות המהדורה המרכזית הערב' headline roll begins.
+
+    Returns the text starting from the first headlines marker found, or the
+    original text if no marker is detected.
+    """
+    for marker in _HEADLINES_MARKERS:
+        idx = text.find(marker)
+        if idx != -1:
+            stripped = text[idx:].strip()
+            removed  = text[:idx].strip()
+            if removed:
+                print(f"   ✂️  Stripped {len(removed)} chars of preamble before '{marker[:20]}…'")
+            return stripped
+    print("   ℹ️  No preamble marker found — using full transcript")
+    return text
+
+
 # ─── Story processing (shared logic with radio_to_sheet) ─────────────────────
 
 def _process_story(text: str) -> tuple[str, str]:
@@ -295,20 +332,26 @@ def _split_tv_stories(full_text: str) -> list[str]:
 
         system = (
             "קיבלת תמלול של 10 הדקות הראשונות של מהדורת החדשות של רשת 13 בשעה 20:00. "
-            "עליך לחלק את הטקסט לפריטים נפרדים.\n\n"
-            "מבנה המהדורה (10 דקות ראשונות):\n"
-            "• פריט 1 — פתיחה + כותרות: 'ערב טוב' / ברכת פתיחה + הצגת הכותרות "
-            "(בדרך כלל דקה-שתיים ראשונות).\n"
+            "הטקסט כבר הוכן מראש: הפתיח והקדמת המגיש נגזרו, והטקסט מתחיל ישירות "
+            "מבלוק הכותרות ('כותרות המהדורה המרכזית הערב').\n\n"
+            "עליך לחלק את הטקסט לפריטים נפרדים:\n\n"
+            "• פריט 1 — בלוק הכותרות בלבד: הכותרות הקצרות כפי שנקראו על ידי המגיש "
+            "לפני הכניסה לידיעות המורחבות. "
+            "מסתיים לפני שהמגיש פותח בסיקור הידיעה הראשונה לעומק.\n"
             "• פריטים 2+ — ידיעות מורחבות: כל ידיעה עוסקת בנושא אחד. "
             "יכולה לכלול קריין בסטודיו, כתב בשטח, ראיון או כולם יחד — "
             "כולם שייכים לאותה ידיעה כל עוד הנושא זהה.\n\n"
             "כיצד לזהות גבולות בין ידיעות:\n"
             "• שינוי נושא מוחלט — אדם אחר, אירוע אחר, מקום אחר.\n"
-            "• ביטויים כמו 'בנושא אחר', 'כעת נעבור', שם כתב חדש בפתיחה.\n"
+            "• ביטויים כמו 'בנושא אחר', 'כעת נעבור', 'נעבור ל', שם כתב חדש בפתיחה.\n"
             "• ציטוטים, ראיונות, תגובות — חלק מאותה ידיעה.\n\n"
+            "טיפ לזיהוי סיום בלוק הכותרות:\n"
+            "• בדרך כלל מסתיים ב'שלום לכם' / 'ערב טוב' + פתיחת הידיעה הראשונה לעומק.\n"
+            "• לפעמים מסתיים לאחר 'מיד כל הפרטים' על הכותרת האחרונה.\n\n"
             "כללים:\n"
             "• שמור על הטקסט המקורי בדיוק — אל תשנה, אל תוסיף, אל תגרע.\n"
             "• כל פריט לפחות 30 תווים.\n"
+            "• התעלם מרעש / הזיות אם הן מופיעות (טקסט שאינו עברית תקנית).\n"
             "• החזר JSON בלבד, ללא טקסט נוסף:\n"
             "{\"items\": [\"פריט 1\", \"פריט 2\", ...]}"
         )
@@ -381,8 +424,11 @@ def transcribe_episode(episode: dict) -> list[dict]:
     segments   = getattr(result, "segments", [])
     time_index = _build_time_index(segments)
 
+    # Strip opening teaser / anchor intro before the headlines block
+    stripped_text = _strip_preamble(full_text)
+
     # Split into raw story items; filter jingle hallucinations
-    raw_items = [i for i in _split_tv_stories(full_text) if len(i.strip()) >= 30]
+    raw_items = [i for i in _split_tv_stories(stripped_text) if len(i.strip()) >= 30]
     if not raw_items:
         raw_items = [full_text]
 
