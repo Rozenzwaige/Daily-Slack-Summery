@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r news_summary/requirements.txt
 
+      - name: Install ffmpeg
+        run: sudo apt-get install -y ffmpeg
+
       - name: Transcribe TV bulletin and write to sheet
         env:
           GROQ_API_KEY:            ${{ secrets.GROQ_API_KEY }}
