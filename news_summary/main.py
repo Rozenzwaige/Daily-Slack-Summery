@@ -224,7 +224,7 @@ GOOGLE_NEWS_QUERIES = [
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def is_recent(entry, hours: int = 12) -> bool:
+def is_recent(entry, hours: int = 8) -> bool:
     """Return True if the entry was published within the last N hours."""
     for attr in ("published_parsed", "updated_parsed"):
         val = getattr(entry, attr, None)
