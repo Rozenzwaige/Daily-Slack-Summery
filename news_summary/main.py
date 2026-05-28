@@ -1030,8 +1030,14 @@ def main():
     print("\n🤖 Summarising with Claude...")
     summary = summarise(articles)
 
-    print("\n📤 Posting to Slack...")
-    send_to_slack(summary)
+    now_idt   = datetime.now(timezone.utc) + timedelta(hours=3)
+    is_friday = now_idt.weekday() == 4   # Monday=0 … Friday=4
+
+    if is_friday:
+        print("\n📤 Posting to Slack... ⏭️  Friday — skipping Slack")
+    else:
+        print("\n📤 Posting to Slack...")
+        send_to_slack(summary)
 
     print("\n📱 Posting to WhatsApp...")
     send_to_whatsapp(summary)
