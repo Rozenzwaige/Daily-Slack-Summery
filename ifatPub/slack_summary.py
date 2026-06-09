@@ -415,6 +415,8 @@ def send_articles(client: WebClient, channel: str, df: pd.DataFrame):
             channel=channel,
             blocks=chunk,
             text=f"פרסומים {i // 2 + 1}–{min((i + CHUNK) // 2, len(df_sorted))}",
+            unfurl_links=False,
+            unfurl_media=False,
         )
 
 
