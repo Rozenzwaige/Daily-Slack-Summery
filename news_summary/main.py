@@ -225,17 +225,20 @@ GOOGLE_NEWS_QUERIES = [
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def is_recent(entry, hours: int = 8) -> bool:
-    """Return True if the entry was published within the last N hours."""
-    for attr in ("published_parsed", "updated_parsed"):
-        val = getattr(entry, attr, None)
-        if val:
-            try:
-                pub = datetime(*val[:6], tzinfo=timezone.utc)
-                cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-                return pub >= cutoff
-            except Exception:
-                pass
-    # No date available — exclude to avoid stale articles from previous days
+    """Return True if the entry was published within the last N hours.
+    Uses published_parsed only — updated_parsed is intentionally ignored
+    because sites like MSN update old articles, causing stale content to
+    appear with a fresh timestamp.
+    """
+    val = getattr(entry, "published_parsed", None)
+    if val:
+        try:
+            pub = datetime(*val[:6], tzinfo=timezone.utc)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            return pub >= cutoff
+        except Exception:
+            pass
+    # No date available — exclude to avoid stale articles
     return False
 
 
