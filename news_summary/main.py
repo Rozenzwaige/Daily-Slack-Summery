@@ -40,8 +40,7 @@ def load_seen_articles() -> set[str]:
         return set()
     try:
         data = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-        return {url for url, ts in data.items() if ts >= cutoff}
+        return set(data.keys())
     except Exception:
         return set()
 
@@ -53,14 +52,12 @@ def save_seen_articles(articles: list[dict]) -> None:
             existing = json.loads(SEEN_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
-    fresh = {url: ts for url, ts in existing.items() if ts >= cutoff}
     now = datetime.now(timezone.utc).isoformat()
     for a in articles:
         key = _article_key(a)
         if key:
-            fresh[key] = now
-    SEEN_FILE.write_text(json.dumps(fresh, ensure_ascii=False, indent=2), encoding="utf-8")
+            existing[key] = now
+    SEEN_FILE.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
 
 # ─── Credentials (injected as GitHub Secrets / env vars) ─────────────────────
 
