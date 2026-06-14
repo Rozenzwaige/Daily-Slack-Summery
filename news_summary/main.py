@@ -737,6 +737,17 @@ def collect_articles() -> list[dict]:
 def summarise(articles: list[dict]) -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+    # Cap at 4 articles per source to enforce diversity before Claude even sees the list.
+    # This is a safety net on top of the prompt rule (max 2 per source per category).
+    from collections import Counter
+    source_counts: Counter = Counter()
+    capped: list[dict] = []
+    for a in articles:
+        if source_counts[a.get("source", "")] < 4:
+            capped.append(a)
+            source_counts[a.get("source", "")] += 1
+    articles = capped
+
     # Build article list with URLs (cap at 150 to allow richer left/labor coverage)
     lines = []
     for i, a in enumerate(articles[:150], 1):
@@ -784,7 +795,7 @@ def summarise(articles: list[dict]) -> str:
 6. כתבות עם מקור "📌 נוסף ידנית" — כלול אותן תחת הקטגוריה המתאימה וסמן כ-📌
 7. **אסור להשתמש במילים "חיסול", "חוסל", "חיסל", "חיסולו".** במקומן השתמש ב-"הרג", "נהרג", "התנקשות", "התנקשו ב-", "הרגו את" — לפי ההקשר הדקדוקי.
 8. **אסור להשתמש במונח "שמאל קיצוני".** השתמש ב-"שמאל", "שמאל רדיקלי" או "שמאל פרוגרסיבי" לפי ההקשר. מלנשון, קורבין, סנדרס וכדומה אינם "קיצוניים".
-9. **גיוון מקורות:** מקסימום 2 ידיעות מאותו אתר/עיתון בכל קטגוריה. אם יש 3+ כתבות מ-ynet למשל — בחר את 2 החשובות ביותר ודלג על השאר לטובת מקורות אחרים.
+9. **גיוון מקורות — כלל קשיח:** מקסימום 2 ידיעות מאותו אתר/עיתון בכל קטגוריה. זה כולל ynet, וואלה, N12 וכל מקור אחר. אם יש 3 כתבות מ-ynet בסקציה — השמט את הפחות חשובה. אסור בשום מקרה להופיע 3 פעמים או יותר מאותו מקור באותה סקציה.
 10. **זוהרן ממדני הוא ראש עיר ניו יורק** (נבחר 2025) — אל תכתוב "מועמד".
 
 *פורמט הפלט (כלול רק סקציות שיש להן תוכן):*
