@@ -28,7 +28,10 @@ SEEN_FILE = Path(__file__).parent / "seen_articles.json"
 def _article_key(article: dict) -> str:
     url = article.get("link", "").strip()
     if url:
-        return url
+        # Strip query parameters — they're usually tracking data (e.g. ?ocid=BingNewsSerp),
+        # not part of the article identity. Without this, the same MSN/ynet article
+        # appears as a different URL each day and bypasses the seen_articles dedup.
+        return url.split("?")[0].rstrip("/")
     return article.get("title", "")[:80].lower().strip()
 
 
@@ -797,6 +800,7 @@ def summarise(articles: list[dict]) -> str:
 8. **אסור להשתמש במונח "שמאל קיצוני".** השתמש ב-"שמאל", "שמאל רדיקלי" או "שמאל פרוגרסיבי" לפי ההקשר. מלנשון, קורבין, סנדרס וכדומה אינם "קיצוניים".
 9. **גיוון מקורות — כלל קשיח:** מקסימום 2 ידיעות מאותו אתר/עיתון בכל קטגוריה. זה כולל ynet, וואלה, N12 וכל מקור אחר. אם יש 3 כתבות מ-ynet בסקציה — השמט את הפחות חשובה. אסור בשום מקרה להופיע 3 פעמים או יותר מאותו מקור באותה סקציה.
 10. **זוהרן ממדני הוא ראש עיר ניו יורק** (נבחר 2025) — אל תכתוב "מועמד".
+11. **כל כתבה מופיעה בסקציה אחת בלבד.** אסור לאזכר אותה כתבה בשתי סקציות שונות, גם אם היא רלוונטית לשתיהן — בחר את הסקציה המתאימה ביותר.
 
 *פורמט הפלט (כלול רק סקציות שיש להן תוכן):*
 
