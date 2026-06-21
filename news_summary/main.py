@@ -1018,6 +1018,90 @@ def send_to_whatsapp(text: str):
     print(f"✅ Sent to WhatsApp ({len(group_ids)} groups, {len(sections)} messages each)")
 
 
+# ─── World Cup 2026 results ───────────────────────────────────────────────────
+
+def fetch_world_cup_results() -> str:
+    """
+    Fetch today's FIFA World Cup 2026 results from the ESPN public API.
+    Returns a formatted WhatsApp message, or empty string if no matches today.
+    """
+    try:
+        resp = requests.get(
+            "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"⚠️  World Cup API error: {e}")
+        return ""
+
+    events = data.get("events", [])
+    if not events:
+        return ""
+
+    today_str = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%d/%m/%Y")
+    lines = [f"⚽ *מונדיאל 2026 — {today_str}*\n"]
+
+    for event in events:
+        comps = event.get("competitions", [])
+        if not comps:
+            continue
+        comp = comps[0]
+
+        competitors = comp.get("competitors", [])
+        if len(competitors) < 2:
+            continue
+
+        home = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
+        away = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
+
+        home_name  = home.get("team", {}).get("displayName", "?")
+        away_name  = away.get("team", {}).get("displayName", "?")
+        home_score = home.get("score", "")
+        away_score = away.get("score", "")
+
+        status      = event.get("status", {})
+        status_type = status.get("type", {})
+        state       = status_type.get("state", "pre")   # pre / in / post
+        detail      = status_type.get("shortDetail", "")
+
+        if state == "post":
+            lines.append(f"• {home_name} {home_score}–{away_score} {away_name} ✅")
+        elif state == "in":
+            lines.append(f"• {home_name} {home_score}–{away_score} {away_name} 🔴 ({detail})")
+        else:
+            lines.append(f"• {home_name} נגד {away_name} ({detail})")
+
+    if len(lines) <= 1:
+        return ""
+
+    return "\n".join(lines)
+
+
+def send_plain_to_whatsapp(text: str):
+    """Send a single plain-text message to all configured WhatsApp groups."""
+    if not GREEN_API_INSTANCE or not GREEN_API_TOKEN or not WHATSAPP_GROUP_ID:
+        return
+
+    group_ids = [gid.strip() for gid in WHATSAPP_GROUP_ID.split(",") if gid.strip()]
+    api_url = (
+        f"https://api.green-api.com"
+        f"/waInstance{GREEN_API_INSTANCE}"
+        f"/sendMessage/{GREEN_API_TOKEN}"
+    )
+
+    for i, group_id in enumerate(group_ids):
+        resp = requests.post(
+            api_url,
+            json={"chatId": group_id, "message": text},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        if i < len(group_ids) - 1:
+            time.sleep(3)
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
@@ -1063,6 +1147,14 @@ def main():
 
     print("\n📱 Posting to WhatsApp...")
     send_to_whatsapp(summary)
+
+    print("\n⚽ Fetching World Cup results...")
+    world_cup = fetch_world_cup_results()
+    if world_cup:
+        print("📱 Sending World Cup results to WhatsApp...")
+        send_plain_to_whatsapp(world_cup)
+    else:
+        print("   No World Cup matches today.")
 
     save_seen_articles(articles)
     print("\n✅ Done!\n")
