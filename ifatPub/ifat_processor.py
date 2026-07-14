@@ -1316,7 +1316,7 @@ def fetch_api_articles(
             print(f"  [אזהרה] לא ניתן לאתחל Drive: {e}")
 
     print(f"מתחבר ל-API יפעת...")
-    session, token = _ifat_http_login(config)
+    pw, browser, bpage, token = _ifat_browser_login(config)
     print(f"מחובר. מושך כתבות עבור {target_date}...")
 
     main_articles:  list[dict] = []
@@ -1325,7 +1325,7 @@ def fetch_api_articles(
 
     try:
         for page in range(1, 9999):
-            items = _ifat_fetch_page_http(session, token, page=page, page_size=PAGE_SIZE)
+            items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
             if not items:
                 break
 
@@ -1382,7 +1382,8 @@ def fetch_api_articles(
             if past_target or len(items) < PAGE_SIZE:
                 break
     finally:
-        session.close()
+        browser.close()
+        pw.stop()
 
     print(f"נמצאו {len(main_articles)} כתבות ראשיות + {len(peace_articles)} כתבות שלום ישראלי-פלסטיני עבור {target_date}")
     return main_articles, peace_articles
