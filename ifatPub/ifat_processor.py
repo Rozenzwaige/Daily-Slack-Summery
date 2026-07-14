@@ -108,7 +108,7 @@ TOPIC_OPTIONS = [
 # ============================================================
 
 def load_config() -> dict:
-    with open(CONFIG_FILE, encoding="utf-8") as f:
+    with open(CONFIG_FILE, encoding="utf-8-sig") as f:
         return json.load(f)
 
 
