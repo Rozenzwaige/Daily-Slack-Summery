@@ -1106,6 +1106,70 @@ def _get_or_create_drive_folder(drive, parent_id: str, folder_name: str) -> str:
     return folder["id"]
 
 
+def _extract_media_url_from_share_page(share_url: str) -> str:
+    """Fetch the ifat share page and extract the direct MP3/MP4 URL."""
+    try:
+        r = _requests.get(share_url, timeout=15)
+        r.raise_for_status()
+        import re as _re
+        matches = _re.findall(r'(https?://[^\s"<>]+\.(?:mp3|mp4|wav))', r.text)
+        return matches[0] if matches else ""
+    except Exception:
+        return ""
+
+
+def _upload_media_to_drive(media_url: str, article: dict, config: dict, drive) -> str:
+    """Download MP3/MP4 from ifat and upload to Google Drive. Returns webViewLink."""
+    import tempfile, os
+    ext = media_url.rsplit(".", 1)[-1].lower()
+    mime = {"mp3": "audio/mpeg", "mp4": "video/mp4", "wav": "audio/wav"}.get(ext, "application/octet-stream")
+
+    r = _requests.get(media_url, timeout=120, stream=True)
+    r.raise_for_status()
+
+    date_str = article.get("date", "")
+    try:
+        dt = datetime.strptime(date_str, "%d/%m/%Y")
+        year_str  = str(dt.year)
+        month_str = f"{dt.month:02d}"
+        day_str   = f"{dt.day:02d}"
+    except Exception:
+        year_str = month_str = day_str = "unknown"
+
+    root_folder  = config["drive_folder_id"]
+    year_folder  = _get_or_create_drive_folder(drive, root_folder,  year_str)
+    month_folder = _get_or_create_drive_folder(drive, year_folder,  month_str)
+    day_folder   = _get_or_create_drive_folder(drive, month_folder, day_str)
+
+    serial = article.get("serial", "unknown")
+    source = re.sub(r"[^\w\-]", "_", article.get("source", "unknown"))[:30]
+    fname  = f"{date_str.replace('/', '-')}_{source}_{serial}.{ext}"
+
+    with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+        for chunk in r.iter_content(chunk_size=1024 * 1024):
+            tmp.write(chunk)
+        tmp_path = tmp.name
+
+    try:
+        uploaded = drive.files().create(
+            body={"name": fname, "parents": [day_folder]},
+            media_body=MediaFileUpload(tmp_path, mimetype=mime, resumable=True),
+            fields="id, webViewLink",
+            supportsAllDrives=True,
+        ).execute()
+        drive.permissions().create(
+            fileId=uploaded["id"],
+            body={"type": "anyone", "role": "reader"},
+            supportsAllDrives=True,
+        ).execute()
+        return uploaded.get("webViewLink", "")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 def _get_item_clips(token: str, itemid) -> list[dict]:
     """Call GetItemClips API to get JPG/PDF URLs for a print article."""
     url = f"https://media.ifat.com/data/api/customer/GetItemClips?ItemID={itemid}"
@@ -1240,7 +1304,21 @@ def fetch_api_articles(
                                     art["link"] = drive_link
                                     print(f"    הועלה לDrive: {art.get('source')} — {art.get('title', '')[:40]}")
                         except Exception as e:
-                            print(f"    [אזהרה] שגיאה בהעלאה לDrive: {e}")
+                            print(f"    [אזהרה] שגיאה בהעלאה לDrive (מודפסת): {e}")
+
+                    # רדיו / טלוויזיה — הורד MP3/MP4 והעלה לDrive
+                    elif drive_service and art.get("media") in ("רדיו", "טלוויזיה"):
+                        share_url = item.get("shareUrl", "")
+                        if share_url:
+                            try:
+                                media_url = _extract_media_url_from_share_page(share_url)
+                                if media_url:
+                                    drive_link = _upload_media_to_drive(media_url, art, config, drive_service)
+                                    art["link"] = drive_link
+                                    ext = media_url.rsplit(".", 1)[-1].upper()
+                                    print(f"    הועלה {ext} לDrive: {art.get('source')} — {art.get('title', '')[:40]}")
+                            except Exception as e:
+                                print(f"    [אזהרה] שגיאה בהעלאה לDrive ({art.get('media')}): {e}")
 
                     if _is_peace_only(art):
                         peace_articles.append(art)
