@@ -6,9 +6,10 @@ scraper/node_modules/
 credentials.json
 .env
 scraped_data.json
-seen_txn_ids.json
-category_spike_state.json
-high_balance_state.json
+# state files are committed so GitHub Actions can persist them between runs
+# seen_txn_ids.json
+# category_spike_state.json
+# high_balance_state.json
 *.log
 *.bak*
 wwebjs_auth*/

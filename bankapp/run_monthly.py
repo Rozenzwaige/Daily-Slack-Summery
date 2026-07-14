@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sheets
-import weekly_report
+import monthly_report
 
 svc = sheets.open_spreadsheet()
-weekly_report.send_weekly_reports(svc)
+monthly_report.send_monthly_reports(svc)

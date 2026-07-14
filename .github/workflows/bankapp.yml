@@ -1,0 +1,87 @@
+name: BankApp — scrape & alerts
+
+on:
+  schedule:
+    - cron: '0 20 * * *'   # 23:00 Israel time daily
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install scraper deps
+        run: cd bankapp/scraper && npm ci
+
+      - name: Install Playwright browser
+        run: cd bankapp/scraper && npx playwright install --with-deps chromium
+
+      - name: Scrape bank & credit card
+        env:
+          FIBI_USERNAME: ${{ secrets.FIBI_USERNAME }}
+          FIBI_PASSWORD: ${{ secrets.FIBI_PASSWORD }}
+          CAL_USERNAME:  ${{ secrets.CAL_USERNAME }}
+          CAL_PASSWORD:  ${{ secrets.CAL_PASSWORD }}
+          CAL2_USERNAME: ${{ secrets.CAL2_USERNAME }}
+          CAL2_PASSWORD: ${{ secrets.CAL2_PASSWORD }}
+        run: cd bankapp && node scraper/scrape.js
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: cd bankapp && pip install -r requirements.txt
+
+      - name: Process transactions → Sheets + Telegram alerts
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          TELEGRAM_BOT_TOKEN:      ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:        ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINANCE_SPREADSHEET_ID:  ${{ secrets.FINANCE_SPREADSHEET_ID }}
+          HIGH_BALANCE_THRESHOLD:  '20000'
+        run: cd bankapp && python processor.py
+
+      - name: Weekly report (Thursdays)
+        if: github.event_name == 'schedule'
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          TELEGRAM_BOT_TOKEN:      ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:        ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINANCE_SPREADSHEET_ID:  ${{ secrets.FINANCE_SPREADSHEET_ID }}
+          ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ "$(date -u +%u)" = "4" ]; then
+            echo "Thursday — sending weekly report"
+            cd bankapp && python run_weekly.py
+          fi
+
+      - name: Monthly report (1st of month)
+        if: github.event_name == 'schedule'
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          TELEGRAM_BOT_TOKEN:      ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:        ${{ secrets.TELEGRAM_CHAT_ID }}
+          FINANCE_SPREADSHEET_ID:  ${{ secrets.FINANCE_SPREADSHEET_ID }}
+          ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            echo "1st of month — sending monthly report"
+            cd bankapp && python run_monthly.py
+          fi
+
+      - name: Commit updated state
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bankapp/seen_txn_ids.json bankapp/category_spike_state.json bankapp/high_balance_state.json
+          git diff --staged --quiet || git commit -m "chore: bankapp state update [skip ci]"
+          git push
