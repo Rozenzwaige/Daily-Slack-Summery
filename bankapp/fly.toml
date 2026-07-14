@@ -1,0 +1,17 @@
+# Fly.io config for the WhatsApp finance bot (webhook server).
+# Change `app` to a unique name before first deploy.
+app = "bankapp-bot-5955"
+primary_region = "cdg"  # Paris — close to Israel; pick any
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false   # keep always-on so webhooks are never missed
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+node_modules/
+scraper/node_modules/
+credentials.json
+.env
+scraped_data.json
+seen_txn_ids.json
+category_spike_state.json
+high_balance_state.json
+*.log
+*.bak*
+wwebjs_auth*/

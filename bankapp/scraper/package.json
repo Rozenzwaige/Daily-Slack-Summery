@@ -1,0 +1,12 @@
+{
+  "name": "bankapp-scraper",
+  "version": "1.0.0",
+  "main": "scrape.js",
+  "scripts": {
+    "scrape": "node scrape.js"
+  },
+  "dependencies": {
+    "israeli-bank-scrapers": "^6.7.5",
+    "playwright": "^1.61.0"
+  }
+}
