@@ -37,7 +37,10 @@ from typing import Optional
 from urllib.parse import quote
 
 import gspread
+import requests as _requests
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 # ============================================================
 # Paths
@@ -49,6 +52,7 @@ CHARACTERS_FILE = BASE_DIR / "characters.json"
 
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
 ]
 
 SHEET_HEADERS = [
@@ -1071,6 +1075,94 @@ def _is_peace_only(art: dict) -> bool:
     return True
 
 
+# ============================================================
+# Google Drive — print article image upload
+# ============================================================
+
+def _get_drive_service(config: dict):
+    creds_file = BASE_DIR / config["credentials_file"]
+    creds = Credentials.from_service_account_file(str(creds_file), scopes=GOOGLE_SCOPES)
+    return build("drive", "v3", credentials=creds)
+
+
+def _get_or_create_drive_folder(drive, parent_id: str, folder_name: str) -> str:
+    q = (
+        f"name='{folder_name}' "
+        "and mimeType='application/vnd.google-apps.folder' "
+        f"and '{parent_id}' in parents "
+        "and trashed=false"
+    )
+    res = drive.files().list(
+        q=q, fields="files(id)",
+        supportsAllDrives=True, includeItemsFromAllDrives=True,
+    ).execute()
+    files = res.get("files", [])
+    if files:
+        return files[0]["id"]
+    folder = drive.files().create(
+        body={"name": folder_name, "mimeType": "application/vnd.google-apps.folder", "parents": [parent_id]},
+        fields="id", supportsAllDrives=True,
+    ).execute()
+    return folder["id"]
+
+
+def _get_item_clips(token: str, itemid) -> list[dict]:
+    """Call GetItemClips API to get JPG/PDF URLs for a print article."""
+    url = f"https://media.ifat.com/data/api/customer/GetItemClips?ItemID={itemid}"
+    resp = _requests.get(url, headers={"Authorization": f"bearer {token}"}, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+def _upload_clip_jpg_to_drive(jpg_url: str, article: dict, config: dict, drive) -> str:
+    """Download JPG from ifatmediasite and upload to Google Drive. Returns webViewLink."""
+    import tempfile, os
+    r = _requests.get(jpg_url, timeout=30)
+    r.raise_for_status()
+
+    date_str = article.get("date", "")
+    try:
+        dt = datetime.strptime(date_str, "%d/%m/%Y")
+        year_str  = str(dt.year)
+        month_str = f"{dt.month:02d}"
+        day_str   = f"{dt.day:02d}"
+    except Exception:
+        year_str = month_str = day_str = "unknown"
+
+    root_folder  = config["drive_folder_id"]
+    year_folder  = _get_or_create_drive_folder(drive, root_folder,  year_str)
+    month_folder = _get_or_create_drive_folder(drive, year_folder,  month_str)
+    day_folder   = _get_or_create_drive_folder(drive, month_folder, day_str)
+
+    serial = article.get("serial", "unknown")
+    source = re.sub(r"[^\w\-]", "_", article.get("source", "unknown"))[:30]
+    fname  = f"{date_str.replace('/', '-')}_{source}_{serial}.jpg"
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp.write(r.content)
+        tmp_path = tmp.name
+
+    try:
+        uploaded = drive.files().create(
+            body={"name": fname, "parents": [day_folder]},
+            media_body=MediaFileUpload(tmp_path, mimetype="image/jpeg", resumable=False),
+            fields="id, webViewLink",
+            supportsAllDrives=True,
+        ).execute()
+        drive.permissions().create(
+            fileId=uploaded["id"],
+            body={"type": "anyone", "role": "reader"},
+            supportsAllDrives=True,
+        ).execute()
+        return uploaded.get("webViewLink", "")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
 def fetch_api_articles(
     config: dict,
     characters: list,
@@ -1099,6 +1191,15 @@ def fetch_api_articles(
         print(f"  נטענו {len(language_index)} מקורות עם שפה מהאינדקס")
     else:
         print(f"  [שים לב] אין עמודת שפה באינדקס — נשתמש בזיהוי אוטומטי")
+
+    drive_service = None
+    if config.get("drive_folder_id"):
+        try:
+            drive_service = _get_drive_service(config)
+            print(f"  Drive מאותחל — כתבות מודפסות יועלו אוטומטית")
+        except Exception as e:
+            print(f"  [אזהרה] לא ניתן לאתחל Drive: {e}")
+
     print(f"מתחבר ל-API יפעת...")
     pw, browser, bpage, token = _ifat_browser_login(config)
     print(f"מחובר. מושך כתבות עבור {target_date}...")
@@ -1127,6 +1228,20 @@ def fetch_api_articles(
                     enrich(art, characters)
                     art["pub_type"] = _detect_pub_type(art)
                     art["topic"]    = _detect_topic(art)
+
+                    # כתבה מודפסת — הורד תמונה והעלה לDrive
+                    if drive_service and art.get("media") == "עיתונות" and not art.get("link"):
+                        try:
+                            clips = _get_item_clips(token, item.get("itemid"))
+                            if clips:
+                                jpg_url = clips[0].get("url", "")
+                                if jpg_url:
+                                    drive_link = _upload_clip_jpg_to_drive(jpg_url, art, config, drive_service)
+                                    art["link"] = drive_link
+                                    print(f"    הועלה לDrive: {art.get('source')} — {art.get('title', '')[:40]}")
+                        except Exception as e:
+                            print(f"    [אזהרה] שגיאה בהעלאה לDrive: {e}")
+
                     if _is_peace_only(art):
                         peace_articles.append(art)
                     else:
