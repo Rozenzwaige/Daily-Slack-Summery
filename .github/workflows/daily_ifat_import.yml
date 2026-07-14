@@ -30,9 +30,6 @@ jobs:
         working-directory: ifatPub
         run: pip install -r requirements.txt
 
-      - name: Install Playwright browser
-        run: playwright install chromium --with-deps
-
       - name: Write Google credentials
         working-directory: ifatPub
         env:

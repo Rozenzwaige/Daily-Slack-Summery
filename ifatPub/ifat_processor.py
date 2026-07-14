@@ -1118,10 +1118,61 @@ def _extract_media_url_from_share_page(share_url: str) -> str:
         return ""
 
 
-def _upload_media_to_drive(media_url: str, article: dict, config: dict, drive) -> str:
+def _resolve_media_url_and_ext(link: str) -> tuple[str, str]:
+    """
+    Given any ifat-related link, return (direct_media_url, ext).
+    Handles:
+      - share.ifat.com/item?... → parse HTML for MP3/MP4 URL
+      - ifatmediasite.com/Mediaserver/... → fetch directly (stream), detect ext from Content-Type
+      - URL already ending in .mp3/.mp4 → return as-is
+    Returns ("", "") if nothing found or download fails.
+    """
+    if not link:
+        return "", ""
+
+    # Already has a known extension
+    low = link.lower()
+    for ext in ("mp3", "mp4", "wav"):
+        if low.endswith("." + ext):
+            return link, ext
+
+    # share.ifat.com → extract from HTML
+    if "share.ifat.com" in link:
+        direct = _extract_media_url_from_share_page(link)
+        if direct:
+            ext = direct.rsplit(".", 1)[-1].lower()
+            return direct, ext
+        return "", ""
+
+    # Direct media server URL (e.g. ifatmediasite.com/Mediaserver/Radio/...)
+    # — do a HEAD request to find Content-Type
+    try:
+        head = _requests.head(link, timeout=15, allow_redirects=True)
+        ct = head.headers.get("Content-Type", "").lower()
+        if "mpeg" in ct or "mp3" in ct:
+            return link, "mp3"
+        if "mp4" in ct or "video" in ct:
+            return link, "mp4"
+        # Fallback: try GET with stream=True and check first bytes
+        r = _requests.get(link, timeout=15, stream=True)
+        r.raise_for_status()
+        ct = r.headers.get("Content-Type", "").lower()
+        r.close()
+        if "mpeg" in ct or "mp3" in ct:
+            return link, "mp3"
+        if "mp4" in ct or "video" in ct:
+            return link, "mp4"
+    except Exception:
+        pass
+    return "", ""
+
+
+def _upload_media_to_drive(media_url: str, article: dict, config: dict, drive,
+                           ext: str = "") -> str:
     """Download MP3/MP4 from ifat and upload to Google Drive. Returns webViewLink."""
     import tempfile, os
-    ext = media_url.rsplit(".", 1)[-1].lower()
+    if not ext:
+        ext = media_url.rsplit(".", 1)[-1].lower()
     mime = {"mp3": "audio/mpeg", "mp4": "video/mp4", "wav": "audio/wav"}.get(ext, "application/octet-stream")
 
     r = _requests.get(media_url, timeout=120, stream=True)
@@ -1265,7 +1316,7 @@ def fetch_api_articles(
             print(f"  [אזהרה] לא ניתן לאתחל Drive: {e}")
 
     print(f"מתחבר ל-API יפעת...")
-    pw, browser, bpage, token = _ifat_browser_login(config)
+    session, token = _ifat_http_login(config)
     print(f"מחובר. מושך כתבות עבור {target_date}...")
 
     main_articles:  list[dict] = []
@@ -1274,7 +1325,7 @@ def fetch_api_articles(
 
     try:
         for page in range(1, 9999):
-            items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
+            items = _ifat_fetch_page_http(session, token, page=page, page_size=PAGE_SIZE)
             if not items:
                 break
 
@@ -1331,8 +1382,7 @@ def fetch_api_articles(
             if past_target or len(items) < PAGE_SIZE:
                 break
     finally:
-        browser.close()
-        pw.stop()
+        session.close()
 
     print(f"נמצאו {len(main_articles)} כתבות ראשיות + {len(peace_articles)} כתבות שלום ישראלי-פלסטיני עבור {target_date}")
     return main_articles, peace_articles
@@ -1469,6 +1519,154 @@ def fetch_archive_range(
 
 
 # ============================================================
+# Backfill Drive links for existing sheet rows
+# ============================================================
+
+def backfill_drive_links(config: dict, sheet_names: list[str] | None = None):
+    """
+    Scan existing sheet rows and upload media to Google Drive for any row
+    whose link (col I) does not already point to drive.google.com.
+
+    - עיתונות: calls GetItemClips(serial) → uploads JPG
+    - רדיו/טלוויזיה: the existing link IS the shareUrl → extracts MP3/MP4 → uploads
+
+    Updates the sheet cell in-place as each upload completes.
+    """
+    import time as _time
+
+    _, sh = _get_spreadsheet(config)
+
+    if sheet_names is None:
+        # default: main + peace + archive
+        sheet_names = [
+            config.get("sheet_name",         "עומדים ביחד פרסומים"),
+            config.get("peace_sheet_name",    "שלום ישראלי פלסטיני"),
+            config.get("archive_sheet_name",  "ארכיון"),
+        ]
+
+    drive_service = _get_drive_service(config)
+
+    def _relogin():
+        nonlocal pw, browser, bpage, token
+        try:
+            browser.close()
+            pw.stop()
+        except Exception:
+            pass
+        print("  [token] מתחבר מחדש ל-IFAT...")
+        pw, browser, bpage, token = _ifat_browser_login(config)
+        print("  [token] token חודש בהצלחה")
+
+    # Login to IFAT once for the bearer token (needed by GetItemClips)
+    print("מתחבר ל-IFAT לקבלת token...")
+    pw, browser, bpage, token = _ifat_browser_login(config)
+
+    total_done = total_skipped = total_failed = 0
+
+    try:
+        for sname in sheet_names:
+            try:
+                ws = sh.worksheet(sname)
+            except Exception:
+                print(f"  [דילוג] הטאב '{sname}' לא נמצא")
+                continue
+
+            rows = ws.get_all_values()
+            if not rows:
+                continue
+            header = rows[0]
+            data   = rows[1:]   # 0-indexed; sheet row = i+2
+
+            # Find rows that need backfill
+            candidates = []
+            for i, row in enumerate(data):
+                media = row[11].strip() if len(row) > 11 else ""
+                link  = row[8].strip()  if len(row) > 8  else ""
+                serial = row[9].strip() if len(row) > 9  else ""
+                date  = row[0].strip()  if len(row) > 0  else ""
+                source = row[2].strip() if len(row) > 2  else ""
+
+                if media not in ("עיתונות", "רדיו", "טלוויזיה"):
+                    continue
+                if "drive.google.com" in link:
+                    continue        # already uploaded
+                if not link and not serial:
+                    continue        # nothing to work with
+
+                candidates.append({
+                    "sheet_row": i + 2,   # 1-based, +1 for header
+                    "media":  media,
+                    "link":   link,
+                    "serial": serial,
+                    "date":   _normalize_date(date),
+                    "source": source,
+                })
+
+            print(f"\nטאב '{sname}': {len(candidates)} שורות לעדכון")
+
+            for c in candidates:
+                art = {"date": c["date"], "media": c["media"],
+                       "serial": c["serial"], "source": c["source"]}
+                drive_link = ""
+
+                try:
+                    if c["media"] == "עיתונות":
+                        if not c["serial"]:
+                            total_skipped += 1
+                            continue
+                        try:
+                            clips = _get_item_clips(token, c["serial"])
+                        except Exception as clip_err:
+                            if "401" in str(clip_err):
+                                _relogin()
+                                clips = _get_item_clips(token, c["serial"])
+                            else:
+                                raise
+                        if not clips:
+                            print(f"  [ריק] אין קליפים לסריאל {c['serial']} — {c['source']}")
+                            total_skipped += 1
+                            continue
+                        jpg_url = clips[0].get("url", "")
+                        if not jpg_url:
+                            total_skipped += 1
+                            continue
+                        drive_link = _upload_clip_jpg_to_drive(jpg_url, art, config, drive_service)
+
+                    else:  # רדיו / טלוויזיה
+                        raw_link = c["link"]
+                        if not raw_link:
+                            total_skipped += 1
+                            continue
+                        media_url, media_ext = _resolve_media_url_and_ext(raw_link)
+                        if not media_url:
+                            print(f"  [ריק] לא נמצא MP3/MP4 ב: {raw_link[:70]}")
+                            total_skipped += 1
+                            continue
+                        drive_link = _upload_media_to_drive(media_url, art, config, drive_service, ext=media_ext)
+
+                    if drive_link:
+                        ws.update_cell(c["sheet_row"], 9, drive_link)  # col I = 9
+                        ext = "JPG" if c["media"] == "עיתונות" else "MP3/MP4"
+                        print(f"  ✓ {c['date']} | {c['source'][:30]} | {ext} → Drive")
+                        total_done += 1
+                        _time.sleep(0.3)   # gentle rate-limit on Sheets API
+                    else:
+                        total_skipped += 1
+
+                except Exception as e:
+                    print(f"  [שגיאה] שורה {c['sheet_row']} ({c['source']}): {e}")
+                    total_failed += 1
+
+    finally:
+        browser.close()
+        pw.stop()
+
+    print(f"\n{'='*60}")
+    print(f"  הושלם Backfill: {total_done} הועלו, {total_skipped} דולגו, {total_failed} שגיאות")
+    print(f"{'='*60}\n")
+
+
+# ============================================================
 # Main
 # ============================================================
 
@@ -1486,12 +1684,22 @@ def main():
                         help="תאריך התחלה לארכיון (ברירת מחדל: 01/01/2020)")
     parser.add_argument("--to-date",       metavar="DD/MM/YYYY",
                         help="תאריך סיום לארכיון (ברירת מחדל: אתמול)")
+    parser.add_argument("--backfill",      action="store_true",
+                        help="עבור על כל שורות הגיליון ועלה לDrive קבצים שעדיין מצביעים לשרתי יפעת")
+    parser.add_argument("--sheets",        metavar="SHEET", nargs="+",
+                        help="טאבים לעדכון בעת --backfill (ברירת מחדל: שלושת הטאבים)")
     args = parser.parse_args()
 
     config     = load_config()
     characters = load_characters()
 
-    if args.archive:
+    if args.backfill:
+        if "ifat_username" not in config or "ifat_password" not in config:
+            print("שגיאה: חסרים ifat_username / ifat_password ב-ifat_config.json")
+            return
+        backfill_drive_links(config, sheet_names=args.sheets)
+
+    elif args.archive:
         if "ifat_username" not in config or "ifat_password" not in config:
             print("שגיאה: חסרים ifat_username / ifat_password ב-ifat_config.json")
             return
