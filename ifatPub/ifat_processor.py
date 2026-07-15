@@ -596,8 +596,17 @@ def _ifat_browser_login(config: dict):
     """
     from playwright.sync_api import sync_playwright
 
-    pw      = sync_playwright().start()
-    browser = pw.chromium.launch(headless=True)
+    pw = sync_playwright().start()
+    launch_kwargs: dict = {"headless": True}
+    proxy_cfg = config.get("bright_data_proxy")
+    if proxy_cfg:
+        launch_kwargs["proxy"] = {
+            "server":   proxy_cfg["server"],
+            "username": proxy_cfg["username"],
+            "password": proxy_cfg["password"],
+        }
+        print(f"  [proxy] משתמש ב-Bright Data proxy: {proxy_cfg['server']}")
+    browser = pw.chromium.launch(**launch_kwargs)
     context = browser.new_context()
     bpage   = context.new_page()
 
