@@ -694,10 +694,22 @@ def _ifat_http_login(config: dict):
     session.headers.update({
         "Content-Type":  "application/json",
         "Accept":        "application/json, text/plain, */*",
-        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Origin":        "https://media.ifat.com",
         "Referer":       "https://media.ifat.com/login",
+        "sec-ch-ua":     '"Not_A Brand";v="8", "Chromium";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
     })
+    proxy_cfg = config.get("bright_data_proxy")
+    if proxy_cfg:
+        proxy_url = f"http://{proxy_cfg['username']}:{proxy_cfg['password']}@{proxy_cfg['server'].replace('http://', '')}"
+        session.proxies = {"http": proxy_url, "https": proxy_url}
+        session.verify = False
+        print(f"  [proxy] HTTP session משתמש ב-Bright Data proxy")
 
     username = config["ifat_username"]
     password = config["ifat_password"]
@@ -1325,8 +1337,20 @@ def fetch_api_articles(
             print(f"  [אזהרה] לא ניתן לאתחל Drive: {e}")
 
     print(f"מתחבר ל-API יפעת...")
-    pw, browser, bpage, token = _ifat_browser_login(config)
-    print(f"מחובר. מושך כתבות עבור {target_date}...")
+    use_http = bool(config.get("bright_data_proxy"))
+    if use_http:
+        try:
+            http_session, token = _ifat_http_login(config)
+            bpage = None
+            pw = browser = None
+            print(f"מחובר (HTTP+proxy). מושך כתבות עבור {target_date}...")
+        except Exception as e:
+            print(f"  [אזהרה] HTTP login נכשל ({e}), מנסה browser...")
+            use_http = False
+    if not use_http:
+        pw, browser, bpage, token = _ifat_browser_login(config)
+        http_session = None
+        print(f"מחובר (browser). מושך כתבות עבור {target_date}...")
 
     main_articles:  list[dict] = []
     peace_articles: list[dict] = []
@@ -1334,7 +1358,10 @@ def fetch_api_articles(
 
     try:
         for page in range(1, 9999):
-            items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
+            if use_http:
+                items = _ifat_fetch_page_http(http_session, token, page=page, page_size=PAGE_SIZE)
+            else:
+                items = _ifat_fetch_page(bpage, token, page=page, page_size=PAGE_SIZE)
             if not items:
                 break
 
@@ -1391,8 +1418,12 @@ def fetch_api_articles(
             if past_target or len(items) < PAGE_SIZE:
                 break
     finally:
-        browser.close()
-        pw.stop()
+        if browser:
+            browser.close()
+        if pw:
+            pw.stop()
+        if http_session:
+            http_session.close()
 
     print(f"נמצאו {len(main_articles)} כתבות ראשיות + {len(peace_articles)} כתבות שלום ישראלי-פלסטיני עבור {target_date}")
     return main_articles, peace_articles
