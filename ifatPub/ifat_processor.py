@@ -607,7 +607,7 @@ def _ifat_browser_login(config: dict):
         }
         print(f"  [proxy] משתמש ב-Bright Data proxy: {proxy_cfg['server']}")
     browser = pw.chromium.launch(**launch_kwargs)
-    context = browser.new_context()
+    context = browser.new_context(ignore_https_errors=True)
     bpage   = context.new_page()
 
     # Intercept the Login response to capture the JWT token
