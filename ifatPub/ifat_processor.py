@@ -650,7 +650,19 @@ def _ifat_browser_login(config: dict):
     bpage.locator("input").nth(0).fill(config["ifat_username"])
     bpage.locator("input").nth(1).fill(config["ifat_password"])
     bpage.locator("input").nth(1).press("Enter")
-    bpage.wait_for_url("**/dashboard**", timeout=40000)
+
+    # Wait for token — via redirect OR intercepted response (proxy may block redirect)
+    for _ in range(40):
+        if token_holder.get("token"):
+            break
+        bpage.wait_for_timeout(1000)
+
+    # Try URL redirect as fallback (works without proxy)
+    if not token_holder.get("token"):
+        try:
+            bpage.wait_for_url("**/dashboard**", timeout=10000)
+        except Exception:
+            pass
 
     # Extract token (from intercepted response or localStorage)
     token = token_holder.get("token", "")
