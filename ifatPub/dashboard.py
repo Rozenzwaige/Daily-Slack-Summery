@@ -66,6 +66,7 @@ st.markdown("""
     line-height: 1.6 !important;
     font-size: 13px !important;
     transition: all 0.15s !important;
+    user-select: text !important;
   }
   div:has(> span.kpi-btn-marker) + div button[data-testid="baseButton-primary"] {
     background: #f5eeff !important;
@@ -277,12 +278,16 @@ def _plot(fig, height=360, key=None):
     fig.update_layout(
         paper_bgcolor="#ffffff", plot_bgcolor="#ffffff", font_color="#1a1a2e",
         height=height,
+        dragmode=False,
     )
     fig_json = fig.to_json()
     uid = (key or "") + str(abs(hash(fig_json[:80])) % 9999999)
     clip_path = "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
     html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>body{{margin:0;padding:0;overflow:hidden;background:#ffffff;}}</style>
+<style>
+body{{margin:0;padding:0;overflow:hidden;background:#ffffff;}}
+.drag,.nsewdrag,.cursor-crosshair-feedback,.cursor-move-feedback,.cursor-grab-feedback{{cursor:default !important;}}
+</style>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head><body>
 <div id="g{uid}" style="width:100%;height:{height}px;"></div>
@@ -293,24 +298,27 @@ f.layout=f.layout||{{}};
 f.layout.paper_bgcolor='#ffffff';
 f.layout.plot_bgcolor='#ffffff';
 f.layout.font={{color:'#1a1a2e'}};
+f.layout.dragmode=false;
 Plotly.newPlot('g{uid}',f.data,f.layout,{{
   responsive:true,
   displayModeBar:true,
   displaylogo:false,
-  modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d'],
+  scrollZoom:false,
+  modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d','zoom2d','pan2d','zoomIn2d','zoomOut2d','resetScale2d'],
   toImageButtonOptions:{{format:'png',scale:2}},
   modeBarButtonsToAdd:[{{
     name:'copy',
-    title:'העתק לקליפבורד',
+    title:'העתק / פתח תמונה',
     icon:{{width:24,height:24,path:'{clip_path}'}},
     click:async function(gd){{
       try{{
         var img=await Plotly.toImage(gd,{{format:'png',scale:2}});
-        var res=await fetch(img);var blob=await res.blob();
         if(navigator.clipboard&&window.ClipboardItem){{
+          var res=await fetch(img);var blob=await res.blob();
           await navigator.clipboard.write([new ClipboardItem({{'image/png':blob}})]);
         }}else{{
-          var a=document.createElement('a');a.href=img;a.download='chart.png';a.click();
+          var w=window.open('','_blank','width=900,height=600');
+          w.document.write('<html dir="rtl"><head><style>body{{margin:16px;font-family:sans-serif;background:#f8f8f8;text-align:center;}}img{{max-width:100%;border:1px solid #ddd;border-radius:8px;}}p{{color:#555;margin-top:12px;}}</style></head><body><img src="'+img+'"><p>לחץ ימין על התמונה ← "העתק תמונה" (Copy Image)</p></body></html>');
         }}
       }}catch(e){{console.error(e);}}
     }}
@@ -555,13 +563,11 @@ components.html("""<script>
       bar = d.createElement('div');
       bar.id = BAR_ID;
       bar.style.cssText =
-        'display:none;align-items:center;gap:6px;direction:rtl;' +
-        'font-size:12px;flex:1 1 auto;padding:0 8px;overflow:hidden;min-width:0;';
-      var toolbar = d.querySelector('[data-testid="stToolbar"]');
-      if (toolbar) {
-        toolbar.style.overflow = 'visible';
-        toolbar.insertBefore(bar, toolbar.firstChild);
-      }
+        'display:none;position:fixed;top:0;left:0;right:0;z-index:9999;' +
+        'background:white;border-bottom:1px solid #e2d4ee;' +
+        'align-items:center;gap:8px;direction:rtl;' +
+        'font-size:12px;padding:6px 16px;box-shadow:0 2px 8px rgba(0,0,0,.08);';
+      d.body.appendChild(bar);
     }
     return bar;
   }
@@ -594,8 +600,9 @@ components.html("""<script>
       chip.style.cssText =
         'border:1.5px solid '+(act?'#8B1A9D':'#d8c4e8')+';'+
         'background:'+(act?'#f5eeff':'white')+';border-radius:6px;'+
-        'padding:2px 10px;cursor:pointer;white-space:nowrap;'+
-        'color:'+(act?'#5C1070':'#999')+';font-weight:'+(act?'600':'400')+';';
+        'padding:3px 12px;cursor:pointer;white-space:nowrap;'+
+        'color:'+(act?'#5C1070':'#999')+';font-weight:'+(act?'600':'400')+';'+
+        'font-size:12px;';
       chip.textContent = k.text.replace(/\n/g, ' ');
       var m = k.mode;
       chip.addEventListener('click', function(){ pwin._kpiClick(m); });
@@ -608,7 +615,7 @@ components.html("""<script>
     var kpiBtns = findKpiBtns();
     if (!kpiBtns.length) { bar.style.display = 'none'; return; }
     var rect = kpiBtns[0].btn.getBoundingClientRect();
-    if (rect.bottom < 58) {
+    if (rect.bottom < 10) {
       buildBar();
       bar.style.display = 'flex';
     } else {
@@ -632,7 +639,6 @@ components.html("""<script>
       checkScroll();
     }, 700);
 
-    /* re-check after Streamlit re-renders */
     new MutationObserver(function() { checkScroll(); })
       .observe(d.body, {childList:true, subtree:true});
   }
