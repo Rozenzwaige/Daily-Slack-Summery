@@ -8,10 +8,5 @@
   "watch_folder": "C:\\Users\\Nadav\\OneDrive - Technion\\Documents\\Standing togther\\ifatPub",
   "ifat_username": "24542",
   "ifat_password": "24542",
-  "github_repo": "Rozenzwaige/Daily-Slack-Summary",
-  "bright_data_proxy": {
-    "server": "http://brd.superproxy.io:33335",
-    "username": "brd-customer-hl_a51430f5-zone-residential_proxy1",
-    "password": "e0sybqyv37pm"
-  }
+  "github_repo": "Rozenzwaige/Daily-Slack-Summary"
 }
