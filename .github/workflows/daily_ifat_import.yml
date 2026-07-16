@@ -20,6 +20,10 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Add Git Bash to PATH
+        shell: pwsh
+        run: echo "C:\Program Files\Git\bin" | Out-File -Append -Encoding ASCII -FilePath $env:GITHUB_PATH
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
