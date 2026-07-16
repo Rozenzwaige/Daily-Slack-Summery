@@ -2,17 +2,21 @@ name: Daily Ifat Import
 
 on:
   schedule:
-    # 07:00 IDT (UTC+3) = 04:00 UTC
-    - cron: "0 4 * * *"
-    # 19:00 IDT (UTC+3) = 16:00 UTC
-    - cron: "0 16 * * *"
+    # 08:00 IDT (UTC+3) = 05:00 UTC
+    - cron: "0 5 * * *"
+    # 20:00 IDT (UTC+3) = 17:00 UTC
+    - cron: "0 17 * * *"
 
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
+concurrency:
+  group: ifat-import
+  cancel-in-progress: false
+
 jobs:
   fetch-ifat:
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, Windows]
     timeout-minutes: 30
 
     steps:
@@ -28,23 +32,28 @@ jobs:
 
       - name: Install Python dependencies
         working-directory: ifatPub
+        shell: bash
         run: pip install -r requirements.txt
 
       - name: Install Playwright browser
+        shell: bash
         run: playwright install chromium
 
       - name: Write Google credentials
         working-directory: ifatPub
+        shell: bash
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         run: echo "$GOOGLE_CREDENTIALS_JSON" > credentials.json
 
       - name: Write Ifat config
         working-directory: ifatPub
+        shell: bash
         env:
           IFAT_CONFIG_JSON: ${{ secrets.IFAT_CONFIG_JSON }}
         run: echo "$IFAT_CONFIG_JSON" > ifat_config.json
 
       - name: Fetch Ifat articles → Google Sheets
         working-directory: ifatPub
+        shell: bash
         run: python ifat_processor.py --fetch-api
