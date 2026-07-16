@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Add Git Bash to PATH
-        shell: pwsh
+        shell: powershell
         run: echo "C:\Program Files\Git\bin" | Out-File -Append -Encoding ASCII -FilePath $env:GITHUB_PATH
 
       - name: Checkout repository
