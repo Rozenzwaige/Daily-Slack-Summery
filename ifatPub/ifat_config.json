@@ -4,9 +4,14 @@
   "sheet_name": "עומדים ביחד פרסומים",
   "peace_sheet_name": "שלום ישראלי פלסטיני",
   "archive_sheet_name": "ארכיון",
-  "drive_folder_id": "1beDegAV_LZYhggbSnoYTNXQHNYAZWar6",
+  "drive_folder_id": "1SgkA-2E5Zcl3IVQe1kw2Uksq4d_i7eTx",
   "watch_folder": "C:\\Users\\Nadav\\OneDrive - Technion\\Documents\\Standing togther\\ifatPub",
   "ifat_username": "24542",
   "ifat_password": "24542",
-  "github_repo": "Rozenzwaige/Daily-Slack-Summary"
+  "github_repo": "Rozenzwaige/Daily-Slack-Summary",
+  "bright_data_proxy": {
+    "server": "http://brd.superproxy.io:33335",
+    "username": "brd-customer-hl_a51430f5-zone-residential_proxy1",
+    "password": "e0sybqyv37pm"
+  }
 }
