@@ -380,7 +380,6 @@ def _wordcloud(series: pd.Series):
     try:
         from wordcloud import WordCloud
         import matplotlib.pyplot as plt
-        from bidi.algorithm import get_display
     except ImportError:
         return None
     text  = " ".join(series.dropna().astype(str))
@@ -388,14 +387,14 @@ def _wordcloud(series: pd.Series):
     if not words:
         return None
     freq = Counter(words)
-    freq_vis = {get_display(w): c for w, c in freq.items()}
     font_candidates = [os.path.join(BASE_DIR,"fonts","hebrew.ttf"),
                        "C:/Windows/Fonts/arial.ttf","C:/Windows/Fonts/ARIALUNI.TTF",
+                       "/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf",
                        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
     font_path = next((p for p in font_candidates if os.path.exists(p)), None)
     wc = WordCloud(width=1200,height=360,background_color="#ffffff",
                    font_path=font_path,prefer_horizontal=1.0,max_words=80,
-                   colormap="Purples").generate_from_frequencies(freq_vis)
+                   colormap="Purples").generate_from_frequencies(freq)
     fig,ax = plt.subplots(figsize=(12,3.6))
     fig.patch.set_facecolor("#ffffff"); ax.set_facecolor("#ffffff")
     ax.imshow(wc,interpolation="bilinear"); ax.axis("off")
@@ -975,16 +974,30 @@ with tab_search:
 
     rows_html = []
     for _, row in df_s.iterrows():
-        title = _esc(row.get(C_TITLE, ""))
-        link  = str(row.get(C_LINK, "") or "").strip()
-        title_cell = (f'<a href="{_esc(link)}" target="_blank" '
-                      f'style="color:#B55BC8;text-decoration:none;">{title}</a>'
-                      if link else title)
+        title  = _esc(row.get(C_TITLE, ""))
+        link   = str(row.get(C_LINK, "") or "").strip()
+        media  = str(row.get(C_MEDIA, "") or "").strip()
+        source = _esc(row.get(C_SOURCE, ""))
+        date_  = _esc(row.get(C_DATE, ""))
+        if link:
+            title_cell = (
+                f'<a href="{_esc(link)}" '
+                f'data-link="{_esc(link)}" '
+                f'data-title="{title}" '
+                f'data-media="{_esc(media)}" '
+                f'data-source="{source}" '
+                f'data-date="{date_}" '
+                f'class="media-link" '
+                f'style="color:#B55BC8;text-decoration:none;cursor:pointer;">'
+                f'{title}</a>'
+            )
+        else:
+            title_cell = title
         rows_html.append(
             f"<tr>"
-            f"<td>{_esc(row.get(C_DATE,''))}</td>"
-            f"<td>{_esc(row.get(C_SOURCE,''))}</td>"
-            f"<td>{_esc(row.get(C_MEDIA,''))}</td>"
+            f"<td>{date_}</td>"
+            f"<td>{source}</td>"
+            f"<td>{_esc(media)}</td>"
             f"<td>{_esc(row.get(C_PUBTYPE,''))}</td>"
             f"<td>{_esc(row.get(C_LANG,''))}</td>"
             f"<td>{_esc(row.get(C_SENT,''))}</td>"
@@ -992,8 +1005,114 @@ with tab_search:
             f"<td style='min-width:280px;max-width:500px;word-break:break-word;'>{title_cell}</td>"
             f"</tr>"
         )
-    tbl = (
+
+    modal_js = r"""<script>
+(function(){
+  var pd = window.parent.document;
+  var pw = window.parent;
+
+  // ── Inject CSS into parent ──────────────────────────────────────────────
+  if (!pd.getElementById('_mm_style')) {
+    var s = pd.createElement('style');
+    s.id = '_mm_style';
+    s.textContent = [
+      '#_mm_ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);',
+      'z-index:99999;align-items:center;justify-content:center;}',
+      '#_mm_ov.open{display:flex;}',
+      '#_mm_box{background:#fff;border-radius:12px;padding:20px;max-width:820px;',
+      'width:92vw;max-height:88vh;display:flex;flex-direction:column;gap:12px;',
+      'box-shadow:0 8px 40px rgba(0,0,0,.4);overflow:hidden;}',
+      '#_mm_hdr{display:flex;align-items:flex-start;gap:10px;',
+      'border-bottom:1px solid #e2d4ee;padding-bottom:10px;}',
+      '#_mm_title{flex:1;font-size:15px;font-weight:600;color:#3D0950;',
+      'direction:rtl;text-align:right;line-height:1.4;}',
+      '#_mm_meta{font-size:12px;color:#888;direction:rtl;text-align:right;}',
+      '#_mm_close{background:#f5eeff;border:none;border-radius:50%;',
+      'width:32px;height:32px;font-size:18px;cursor:pointer;',
+      'color:#8B1A9D;flex-shrink:0;line-height:32px;text-align:center;}',
+      '#_mm_close:hover{background:#e0c8f0;}',
+      '#_mm_body{flex:1;overflow:auto;display:flex;align-items:center;',
+      'justify-content:center;min-height:200px;}',
+      '#_mm_body iframe{width:100%;height:60vh;border:none;border-radius:8px;}',
+      '#_mm_body audio{width:100%;}',
+      '#_mm_body video{max-width:100%;max-height:60vh;border-radius:8px;}',
+      '#_mm_body img{max-width:100%;max-height:65vh;border-radius:8px;object-fit:contain;}',
+      '#_mm_ext{text-align:center;font-size:12px;color:#8B1A9D;',
+      'text-decoration:none;padding-top:4px;}',
+      '#_mm_ext:hover{text-decoration:underline;}',
+    ].join('');
+    pd.head.appendChild(s);
+  }
+
+  // ── Inject modal HTML into parent ───────────────────────────────────────
+  if (!pd.getElementById('_mm_ov')) {
+    var ov = pd.createElement('div'); ov.id = '_mm_ov';
+    var box = pd.createElement('div'); box.id = '_mm_box';
+    var hdr = pd.createElement('div'); hdr.id = '_mm_hdr';
+    var btn = pd.createElement('button'); btn.id = '_mm_close'; btn.textContent = '✕';
+    var meta_wrap = pd.createElement('div');
+    var ttl = pd.createElement('div'); ttl.id = '_mm_title';
+    var meta = pd.createElement('div'); meta.id = '_mm_meta';
+    meta_wrap.appendChild(ttl); meta_wrap.appendChild(meta);
+    hdr.appendChild(btn); hdr.appendChild(meta_wrap);
+    var body = pd.createElement('div'); body.id = '_mm_body';
+    var ext = pd.createElement('a'); ext.id = '_mm_ext';
+    ext.href='#'; ext.target='_blank'; ext.textContent='↗ פתח ב-Drive / בלשונית חדשה';
+    box.appendChild(hdr); box.appendChild(body); box.appendChild(ext);
+    ov.appendChild(box);
+    pd.body.appendChild(ov);
+
+    // close handlers
+    btn.addEventListener('click', function(){ pw._mmClose(); });
+    ov.addEventListener('click', function(e){ if(e.target===ov) pw._mmClose(); });
+    pd.addEventListener('keydown', function(e){ if(e.key==='Escape') pw._mmClose(); });
+  }
+
+  // ── open / close functions on parent window ─────────────────────────────
+  pw._mmClose = function() {
+    pd.getElementById('_mm_ov').classList.remove('open');
+    pd.getElementById('_mm_body').innerHTML = '';
+  };
+
+  pw._mmOpen = function(link, title, media, source, date) {
+    pd.getElementById('_mm_title').textContent = title || '(ללא כותרת)';
+    pd.getElementById('_mm_meta').textContent  = (source||'') + (date ? '  •  ' + date : '');
+    pd.getElementById('_mm_ext').href = link;
+    var body = pd.getElementById('_mm_body');
+    body.innerHTML = '';
+
+    var lo = link.toLowerCase();
+    var driveMatch = link.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+
+    if (driveMatch) {
+      var fr = pd.createElement('iframe');
+      fr.src = 'https://drive.google.com/file/d/' + driveMatch[1] + '/preview';
+      fr.allow = 'autoplay'; body.appendChild(fr);
+    } else if (lo.endsWith('.mp3') || lo.indexOf('mediaserver/radio') !== -1) {
+      var au = pd.createElement('audio'); au.controls = true; au.style.width = '100%';
+      var sc = pd.createElement('source'); sc.src = link; sc.type = 'audio/mpeg';
+      au.appendChild(sc); body.appendChild(au);
+    } else if (lo.endsWith('.mp4')) {
+      var vi = pd.createElement('video'); vi.controls = true;
+      var sc2 = pd.createElement('source'); sc2.src = link; sc2.type = 'video/mp4';
+      vi.appendChild(sc2); body.appendChild(vi);
+    } else if (lo.match(/\.(jpg|jpeg|png)/)) {
+      var im = pd.createElement('img'); im.src = link; im.alt = title||'';
+      body.appendChild(im);
+    } else {
+      var fr2 = pd.createElement('iframe'); fr2.src = link;
+      fr2.style.cssText = 'width:100%;height:60vh;border:none;';
+      body.appendChild(fr2);
+    }
+    pd.getElementById('_mm_ov').classList.add('open');
+  };
+
+})();
+</script>"""
+
+    tbl_html = (
         "<style>"
+        "body{margin:0;padding:0;background:transparent;}"
         ".srch-tbl{width:100%;border-collapse:collapse;font-size:13px;direction:ltr;}"
         ".srch-tbl th{background:#f0e6f6;color:#5C1070;padding:7px 10px;"
         "text-align:right;border-bottom:2px solid #8B1A9D;position:sticky;top:0;z-index:1;}"
@@ -1009,8 +1128,31 @@ with tab_search:
         "</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table></div>"
+        # Wire link clicks to open modal in parent window
+        "<script>"
+        "document.querySelectorAll('a.media-link').forEach(function(a){"
+        "  a.addEventListener('click',function(e){"
+        "    e.preventDefault();"
+        "    if(window.parent._mmOpen){"
+        "      window.parent._mmOpen("
+        "        a.getAttribute('data-link'),"
+        "        a.getAttribute('data-title'),"
+        "        a.getAttribute('data-media'),"
+        "        a.getAttribute('data-source'),"
+        "        a.getAttribute('data-date')"
+        "      );"
+        "    } else { window.open(a.getAttribute('data-link'),'_blank'); }"
+        "  });"
+        "});"
+        "</script>"
     )
-    st.markdown(tbl, unsafe_allow_html=True)
+    # Use components.html so Streamlit doesn't mangle the HTML through Markdown parsing
+    n_rows = len(rows_html)
+    tbl_height = min(560, 48 + n_rows * 38)  # approx: header + rows
+    components.html(tbl_html, height=tbl_height, scrolling=False)
+
+    # Inject modal overlay into parent window
+    components.html(modal_js, height=0, scrolling=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
