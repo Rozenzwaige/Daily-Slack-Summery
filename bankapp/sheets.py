@@ -15,9 +15,9 @@ from datetime import datetime, timezone
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-SPREADSHEET_ID = os.environ.get(
-    "FINANCE_SPREADSHEET_ID",
-    "1FgKHWqo8_C7VHT9VIckKhUsW27e07WBAIN5iNuC7LDg",
+SPREADSHEET_ID = (
+    os.environ.get("FINANCE_SPREADSHEET_ID")
+    or "1FgKHWqo8_C7VHT9VIckKhUsW27e07WBAIN5iNuC7LDg"
 )
 
 EXPENSE_SHEET  = "עו\"ש הוצאות"
