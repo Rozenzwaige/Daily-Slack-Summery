@@ -14,7 +14,7 @@ import yfinance as yf
 import anthropic
 
 import sheets
-import whatsapp
+import telegram_notify as whatsapp
 
 PORTFOLIO_SHEET = "בורסה"
 
