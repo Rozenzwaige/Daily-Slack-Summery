@@ -393,10 +393,10 @@ def _wordcloud(series: pd.Series):
         try:
             from wordcloud import WordCloud as _WC  # noqa: F401
             _WORDCLOUD_AVAILABLE = True
-        except ImportError:
-            _WORDCLOUD_AVAILABLE = False
-    if not _WORDCLOUD_AVAILABLE:
-        return None, "התקן `wordcloud`: `pip install wordcloud python-bidi`"
+        except Exception as _e:
+            _WORDCLOUD_AVAILABLE = str(_e)
+    if _WORDCLOUD_AVAILABLE is not True:
+        return None, f"שגיאה בטעינת wordcloud: {_WORDCLOUD_AVAILABLE}"
     from wordcloud import WordCloud
     import matplotlib.pyplot as plt
     text  = " ".join(series.dropna().astype(str))
