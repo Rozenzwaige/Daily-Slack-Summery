@@ -1572,6 +1572,32 @@ def fetch_archive_range(
 
 
 # ============================================================
+# Smart date detection
+# ============================================================
+
+def _get_last_sheet_date(config: dict) -> Optional[datetime]:
+    """
+    קרא את עמודת התאריך מהגיליון והחזר את התאריך האחרון שנמצא בעמודה A של הטאב הראשי.
+    מחזיר datetime או None אם הגיליון ריק.
+    """
+    try:
+        _, sh = _get_spreadsheet(config)
+        ws = sh.worksheet(config.get("sheet_name", "עומדים ביחד פרסומים"))
+        col_a = ws.col_values(1)  # כל הערכים בעמודה A
+        dates = []
+        for v in col_a[1:]:  # דלג כותרת
+            try:
+                d = datetime.strptime(_normalize_date(v.strip()), "%d/%m/%Y")
+                dates.append(d)
+            except Exception:
+                continue
+        return max(dates) if dates else None
+    except Exception as e:
+        print(f"  [אזהרה] לא ניתן לקרוא תאריך אחרון מהגיליון: {e}")
+        return None
+
+
+# ============================================================
 # Backfill Drive links for existing sheet rows
 # ============================================================
 
@@ -1768,14 +1794,22 @@ def main():
             print("שגיאה: חסרים ifat_username / ifat_password ב-ifat_config.json")
             return
         if args.date:
-            # תאריך ספציפי שצוין — שולף רק אותו
             dates_to_fetch = [args.date]
         else:
-            # ברירת מחדל: אתמול + היום (בוקר רדיו / עיתונות מודפסת של הבוקר)
             from datetime import timedelta
-            today_str     = datetime.now().strftime("%d/%m/%Y")
-            yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
-            dates_to_fetch = [yesterday_str, today_str]
+            today = datetime.now()
+            last_dt = _get_last_sheet_date(config)
+            if last_dt and (today - last_dt).days > 1:
+                dates_to_fetch = []
+                cur = last_dt
+                while cur.date() <= today.date():
+                    dates_to_fetch.append(cur.strftime("%d/%m/%Y"))
+                    cur += timedelta(days=1)
+                print(f"זוהה פער: שולף {len(dates_to_fetch)} ימים מ-{last_dt.strftime('%d/%m/%Y')} עד היום")
+            else:
+                today_str     = today.strftime("%d/%m/%Y")
+                yesterday_str = (today - timedelta(days=1)).strftime("%d/%m/%Y")
+                dates_to_fetch = [yesterday_str, today_str]
 
         main_articles: list = []
         peace_articles: list = []
