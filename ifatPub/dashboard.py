@@ -384,16 +384,25 @@ def _top_words(series: pd.Series, n=25) -> pd.DataFrame:
     words = [w for w in re.findall(r"[\u0590-\u05FF]{2,}", text) if w not in _STOP]
     return pd.DataFrame(Counter(words).most_common(n), columns=["מילה","ספירה"])
 
+_WORDCLOUD_AVAILABLE: bool | None = None
+
 def _wordcloud(series: pd.Series):
-    try:
-        from wordcloud import WordCloud
-        import matplotlib.pyplot as plt
-    except ImportError:
-        return None
+    """Returns (fig, error_str) — fig is None on failure, error_str is None on success."""
+    global _WORDCLOUD_AVAILABLE
+    if _WORDCLOUD_AVAILABLE is None:
+        try:
+            from wordcloud import WordCloud as _WC  # noqa: F401
+            _WORDCLOUD_AVAILABLE = True
+        except ImportError:
+            _WORDCLOUD_AVAILABLE = False
+    if not _WORDCLOUD_AVAILABLE:
+        return None, "התקן `wordcloud`: `pip install wordcloud python-bidi`"
+    from wordcloud import WordCloud
+    import matplotlib.pyplot as plt
     text  = " ".join(series.dropna().astype(str))
     words = [w for w in re.findall(r"[\u0590-\u05FF]{2,}", text) if w not in _STOP]
     if not words:
-        return None
+        return None, "אין מספיק נתונים לענן מילים בטווח התאריכים הנבחר"
     freq = Counter(words)
     font_candidates = [os.path.join(BASE_DIR,"fonts","hebrew.ttf"),
                        "C:/Windows/Fonts/arial.ttf","C:/Windows/Fonts/ARIALUNI.TTF",
@@ -407,7 +416,7 @@ def _wordcloud(series: pd.Series):
     fig.patch.set_facecolor("#ffffff"); ax.set_facecolor("#ffffff")
     ax.imshow(wc,interpolation="bilinear"); ax.axis("off")
     plt.tight_layout(pad=0)
-    return fig
+    return fig, None
 
 
 # ══ SIDEBAR ══════════════════════════════════════════════════════════════════
@@ -859,11 +868,11 @@ with tab_charts:
         # ── Word cloud ────────────────────────────────────────────────────
         st.subheader("ענן מילים")
         combined = df[C_TITLE].fillna("")+" "+df[C_CONTENT].fillna("")
-        fig_wc = _wordcloud(combined)
+        fig_wc, wc_err = _wordcloud(combined)
         if fig_wc:
             st.pyplot(fig_wc)
-        else:
-            st.info("התקן `wordcloud` + `python-bidi`: `pip install wordcloud python-bidi`")
+        elif wc_err:
+            st.info(wc_err)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
