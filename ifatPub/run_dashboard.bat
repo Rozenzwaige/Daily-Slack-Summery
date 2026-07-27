@@ -9,7 +9,7 @@ if not exist venv (
 call venv\Scripts\activate.bat
 
 echo Installing / updating dependencies...
-pip install -q streamlit plotly pandas gspread google-auth
+pip install -q streamlit plotly pandas gspread google-auth wordcloud python-bidi matplotlib
 
 echo.
 echo Starting dashboard at http://localhost:8501
