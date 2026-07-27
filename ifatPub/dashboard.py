@@ -399,11 +399,16 @@ def _wordcloud(series: pd.Series):
         return None, "התקן `wordcloud`: `pip install wordcloud python-bidi matplotlib`"
     from wordcloud import WordCloud
     import matplotlib.pyplot as plt
+    try:
+        from bidi.algorithm import get_display as _gd
+    except ImportError:
+        _gd = None
     text  = " ".join(series.dropna().astype(str))
-    words = [w for w in re.findall(r"[\u0590-\u05FF]{2,}", text) if w not in _STOP]
-    if not words:
+    raw   = [w for w in re.findall(r"[\u0590-\u05FF]{2,}", text) if w not in _STOP]
+    if not raw:
         return None, "אין מספיק נתונים לענן מילים בטווח התאריכים הנבחר"
-    freq = Counter(words)
+    words = [_gd(w) for w in raw] if _gd else raw
+    freq  = Counter(words)
     font_candidates = [os.path.join(BASE_DIR,"fonts","hebrew.ttf"),
                        "C:/Windows/Fonts/arial.ttf","C:/Windows/Fonts/ARIALUNI.TTF",
                        "/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf",
